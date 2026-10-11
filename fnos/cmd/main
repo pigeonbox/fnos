@@ -124,6 +124,10 @@ rotate_log() {
 #   server 进程消失(崩溃/被杀)则直接重新拉起。
 # 终止条件:server 进程不在且 watchdog 被 stop 清理——框架 stop_process
 # 会先杀 watchdog 再杀 server,故不会与正常停机竞态。
+# ⚠ 双胞胎警示:本脚本与 qnap 仓 shared/pigeonbox.sh 的看门狗/健康探测/日志
+# 截尾逻辑同构(方言差异:本侧 bash、彼侧 POSIX sh)。单侧修改 watchdog 阈值/
+# 探活方式/截尾上限时,请评估另一侧是否需要同步(共享库下沉已评估暂缓:
+# 需动两仓打包布局+双真机重验,收益不匹配两份 ~40 行副本)。
 watchdog_loop() {
     local failures=0 server_pid
     while true; do
