@@ -84,7 +84,7 @@ jobs:
       # web/package.json ⇒ 陈旧包直接红（负对照：把 VERSION 改成 9.9.9 即红）。
       - name: fpack 版本戳对账（防陈旧产物进包）
         run: bash scripts/check-fpack-version.sh
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pigeonbox-fpk
           path: fnos/pigeonbox.fpk
