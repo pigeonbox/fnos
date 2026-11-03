@@ -10,7 +10,7 @@ require (
 	github.com/oekit/concurrency v0.23.3
 	github.com/oekit/core v0.12.1
 	github.com/pigeonbox/contracts v0.21.0
-	github.com/pigeonbox/core v0.33.1
+	github.com/pigeonbox/core v0.33.2
 	github.com/stretchr/testify v1.12.1
 	go.uber.org/zap v1.28.0
 	gorm.io/gorm v1.31.2
@@ -56,8 +56,8 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/oekit/gormx v0.6.6 // indirect
 	github.com/oekit/kitx v0.3.4 // indirect
-	github.com/oekit/logx v0.8.0 // indirect
-	github.com/oekit/pkg v0.31.2 // indirect
+	github.com/oekit/logx v0.8.2 // indirect
+	github.com/oekit/pkg v0.32.0 // indirect
 	github.com/oekit/redisx v0.10.9 // indirect
 	github.com/pandatix/go-abnf v0.5.3 // indirect
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
