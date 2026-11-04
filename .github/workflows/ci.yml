@@ -106,6 +106,18 @@ jobs:
       - name: Beam 出厂预接线自测（幂等 + scope 精确 + 不冲 registry）
         if: always()
         run: bash scripts/prewire-beam-box-selftest.sh
+      # 原地换装脚本的两道门禁（2026-11-04 补接线）：
+      # ① 「取不到 PKGVAR 不得终止脚本」——`set -e` + `pipefail` 下取值失败会直接
+      #    死在读 env 那步（2026-10-26 审计 P1）；**此前这道门禁从未接进 CI**
+      #    ⇒ 门禁存在但等于没跑。
+      # ② 「升级必须同步换生命周期脚本 cmd/ + manifest」——此前脚本只换
+      #    target/{www,bin,ui} ⇒ 4.8.5 新增的 cmd/prewire_beam_box 缺席、
+      #    cmd/main 停在旧版 ⇒ 装了新二进制却跑旧生命周期 = 静默半升级。
+      - name: 原地换装门禁（PKGVAR 兜底 + 生命周期脚本同步）
+        if: always()
+        run: |
+          bash scripts/check-upgrade-inplace-pkgvar.sh
+          bash scripts/check-upgrade-inplace-cmd-sync.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pigeonbox-fpk
