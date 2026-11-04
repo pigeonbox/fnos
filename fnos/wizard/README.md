@@ -7,7 +7,9 @@
 - 字段即 env 契约(compose/adapter 直接消费,故未用 wizard_ 前缀):
   `PB_JWT_SECRET`(留空=adapter 自动生成并持久化到数据卷)、
   `PB_ADMIN_PASSWORD`(非空=admin 密码安装设定/重置:callback 置 `.admin_reset` 标记,
-  cmd/main 启动前删 users.admin,core 按 env 重建;留空=不改动)、
+  cmd/main 启动前把新口令投递给 core(core **原地**改 bcrypt 哈希,admin 的 user id 不变
+  ⇒ 名下分享/API Key 不成孤儿);留空=不改动——.env 里已有的口令逐字保留,
+  供 Beam 出厂预接线做「Key 失效后重建」的自愈)、
   `PB_SERVER_PORT`(服务端口,默认 12345;config_callback 同步解包目录 manifest.service_port,
   cmd/main prepare_env 消费——端口 env 优先,勿在脚本内无条件覆盖)
 

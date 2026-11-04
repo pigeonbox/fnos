@@ -106,6 +106,15 @@ jobs:
       - name: Beam 出厂预接线自测（幂等 + scope 精确 + 不冲 registry）
         if: always()
         run: bash scripts/prewire-beam-box-selftest.sh
+      # 管理员口令重置「原地生效」门禁（2026-11-04，fnos#182）：
+      # 向导的「重置管理员口令」此前是**平台层删 admin 行**（DELETE FROM users）
+      # ⇒ core 按 env 重建 ⇒ admin 的 **user id 变化**
+      # ⇒ 名下 88 份分享 + 3 把 API Key 全部成孤儿（真机实录，且全程无告警）。
+      # 本门禁跑**真脚本**（真 sqlite 库 + 真 users 行 + 真 .env）并带**变异负对照**：
+      # 注入旧行为 ⇒ 「admin 行必须还在」「.env 口令不得被清空」两条判据必须变红。
+      - name: 管理员口令原地重置门禁（不删 admin 行 + 留空=不改动）
+        if: always()
+        run: bash scripts/check-admin-reset-inplace.sh
       # 原地换装脚本的两道门禁（2026-11-04 补接线）：
       # ① 「取不到 PKGVAR 不得终止脚本」——`set -e` + `pipefail` 下取值失败会直接
       #    死在读 env 那步（2026-10-26 审计 P1）；**此前这道门禁从未接进 CI**

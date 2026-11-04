@@ -102,46 +102,60 @@ prepare_env() {
     mkdir -p "${PB_DATA_PATH}"
 }
 
-# 管理员密码重置(.admin_reset 标记由 install/config_callback 在密码字段非空时创建):
-# 删除 users 表 admin 行——core 启动语义为「库中无管理员时按 PB_ADMIN_PASSWORD 重建」,
-# 故随后的进程启动即以向导/配置面板提交的新密码完成重置。
-# python3(fnOS 系统自带)+标准库 sqlite3,无第三方依赖;失败保留标记并记日志(下次启动重试)。
+# 管理员口令重置(.admin_reset 标记由 install/config_callback 在密码字段非空时创建)。
+#
+# 2026-11-04(fnos#182):**不再删 admin 行**。
+#   旧实现:平台层 python3+sqlite3 直接 DELETE users.admin,再由 core 启动时按
+#   PB_ADMIN_PASSWORD 重建 ⇒ admin 的 **user id 变化** ⇒ 名下 88 份分享 +
+#   3 把 API Key 全部成孤儿(真机实录;过程无任何告警,只有数据悄悄失去归属)。
+#   新实现:平台层**只投递新口令**(一次性文件),由 core **原地**改 bcrypt 哈希
+#   ⇒ user id 不变 ⇒ 名下数据归属不变;旧 API Key 继续有效;旧 JWT 失效(纪元 +1)。
+#   口令哈希语义归 core(bcrypt 唯一真相源)⇒ 平台层彻底不碰数据库。
+#
+# ⚠️ .env 里的明文口令**不再清除**:prewire_beam_box 的「每次启动校验有效性、
+#   失效才重建」需要它(清除 ⇒ 自愈只剩第一次,正是本 issue 记的次生缺陷)。
+#   .env 在应用数据目录内、umask 077 ⇒ 仅包用户可读。
 reset_admin_if_requested() {
-    [ -f "${TRIM_PKGVAR}/.admin_reset" ] || return 0
-    if [ -z "${PB_ADMIN_PASSWORD:-}" ]; then
-        log_msg "admin reset requested but PB_ADMIN_PASSWORD empty; keep marker"
-        return 0
-    fi
-    if ! command -v python3 >/dev/null 2>&1; then
-        log_msg "admin reset skipped: python3 not found; keep marker"
-        return 0
-    fi
-    if PB_DB="${PB_DATABASE_DB_NAME}" PB_PWD_HASH="$(printf '%s' "${PB_ADMIN_PASSWORD}" | sha256sum | cut -d' ' -f1)" \
-        python3 - <<'PYEOF'
-import os, sqlite3, datetime
-db = os.environ["PB_DB"]
-con = sqlite3.connect(db)
-cur = con.cursor()
-cur.execute("DELETE FROM users WHERE username = 'admin'")
-con.commit()
-left = cur.execute("SELECT COUNT(*) FROM users WHERE username = 'admin'").fetchone()[0]
-with open(os.path.join(os.path.dirname(db), ".admin_reset.log"), "a") as f:
-    f.write(f"{datetime.datetime.now().isoformat()} admin deleted (remaining={left})\n")
-con.close()
-PYEOF
-    then
-        rm -f "${TRIM_PKGVAR}/.admin_reset"
-        log_msg "admin user removed; will be recreated from PB_ADMIN_PASSWORD on startup"
-        # 消费后清空 .env 中的明文密码(避免长期留存)。注意只清文件、不清 export——
-        # 紧随其后的 server 启动仍需该 env 完成 admin 重建;下次启动时密码已入库,空 env 无碍。
-        local ef=""
-        if [ -r "${TRIM_PKGVAR}/.env" ]; then ef="${TRIM_PKGVAR}/.env"; elif [ -r "${APP_ROOT}/.env" ]; then ef="${APP_ROOT}/.env"; fi
-        if [ -n "$ef" ] && [ -w "$ef" ]; then
-            sed -i 's/^PB_ADMIN_PASSWORD=.*/PB_ADMIN_PASSWORD=""/' "$ef"
+    local marker="${TRIM_PKGVAR}/.admin_reset"
+    if [ -f "$marker" ]; then
+        if [ -z "${PB_ADMIN_PASSWORD:-}" ]; then
+            log_msg "admin reset requested but PB_ADMIN_PASSWORD empty; keep marker"
+            return 0
         fi
-    else
-        log_msg "admin reset SQL failed; keep marker for next start"
+        if stage_admin_password_reset "${PB_ADMIN_PASSWORD}"; then
+            rm -f "$marker"
+            log_msg "admin password reset staged; core applies it in place on startup (user id preserved)"
+        else
+            log_msg "admin password reset staging failed; keep marker for next start"
+            return 0
+        fi
     fi
+    # 已有待消费的重置文件 ⇒ 导出路径给 core。
+    # 文件由 core 消费后即删除 ⇒ 天然一次性(看门狗重启也不会把用户后来改的口令冲掉)。
+    arm_admin_password_reset
+    return 0
+}
+
+# 投递新口令到一次性文件(core 启动时消费后删除)。
+# 原子写(临时文件 + mv)⇒ core 不会读到半截口令;0600 ⇒ 只有包用户读得到。
+stage_admin_password_reset() {
+    local pw="$1"
+    local dir="${PB_DATA_PATH:-${TRIM_PKGVAR}/data}"
+    local file="${dir}/.admin_password_reset"
+    local tmp="${file}.tmp.$$"
+    mkdir -p "$dir" 2>/dev/null || return 1
+    (umask 077 && printf '%s' "$pw" > "$tmp") || { rm -f "$tmp" 2>/dev/null; return 1; }
+    mv -f "$tmp" "$file" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 1; }
+    export PB_ADMIN_PASSWORD_RESET_FILE="$file"
+    return 0
+}
+
+# 待消费的重置文件存在 ⇒ 导出路径(server 与看门狗重启共用同一份)。
+arm_admin_password_reset() {
+    local file="${PB_DATA_PATH:-${TRIM_PKGVAR}/data}/.admin_password_reset"
+    [ -f "$file" ] || return 0
+    export PB_ADMIN_PASSWORD_RESET_FILE="$file"
+    return 0
 }
 
 # p2pcweb 生命周期(A2 内嵌):start 在 server 健康后拉起,stop 在 server 之前

@@ -4,7 +4,9 @@
 # 字段契约(wizard/config 与 install 一致):
 #   PB_JWT_SECRET             留空沿用自动生成
 #   PB_ADMIN_PASSWORD         非空=重置管理员密码为该值(置 .admin_reset 标记,
-#                              cmd/main 启动前删 admin 用户,core 按 env 重建);留空=不改动
+#                              cmd/main 启动前把新口令投递给 core,core **原地**改哈希,
+#                              admin 的 user id 不变 ⇒ 名下分享/Key 不孤儿化);
+#                              留空=不改动(.env 里已有的口令逐字保留)
 #   PB_SERVER_PORT            服务端口(同步安装目录 manifest.service_port 供框架入口探测;
 #                              进程监听端口由 cmd/main prepare_env 消费)
 #
@@ -18,12 +20,31 @@ quote() {
   printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\$/\\$/g')"
 }
 
+# 读 .env 里已有的某一行(逐字返回)。用于「留空=不改动」。
+# 为什么逐字保留而不重新解析再转义:值里可能有 \ " $ 等字符,重新拼装会走样。
+existing_env_line() {
+  local file="$1" key="$2"
+  [ -r "$file" ] || return 0
+  grep -m1 "^${key}=" "$file" 2>/dev/null || true
+}
+
 write_env() {
   umask 077
+  # 「留空=不改动」:提交的 PB_ADMIN_PASSWORD 为空 ⇒ 逐字保留 .env 里已有的那一行。
+  # 为什么要保留:① 向导字段契约本就是「留空=不改动」;② 清空它会让
+  #   prewire_beam_box 的「每次启动校验有效性、失效才重建」失去凭据
+  #   ⇒ 自愈只剩第一次(fnos#182 记的次生缺陷)。
+  local pw_line
+  if [ -n "$PB_ADMIN_PASSWORD" ]; then
+    pw_line="PB_ADMIN_PASSWORD=$(quote "$PB_ADMIN_PASSWORD")"
+  else
+    pw_line="$(existing_env_line "$1" PB_ADMIN_PASSWORD)"
+    [ -n "$pw_line" ] || pw_line='PB_ADMIN_PASSWORD=""'
+  fi
   cat > "$1" <<EOF
 # 由飞牛向导生成(cmd/install_callback 或 config_callback),手工修改后需在应用设置重新提交或重启应用
 PB_JWT_SECRET=$(quote "$PB_JWT_SECRET")
-PB_ADMIN_PASSWORD=$(quote "$PB_ADMIN_PASSWORD")
+${pw_line}
 PB_SERVER_PORT=$(quote "$PB_SERVER_PORT")
 EOF
 }
@@ -38,7 +59,8 @@ else
   fi
 fi
 
-# 管理员密码重置请求:cmd/main 启动前消费(删 admin 用户,core 按 PB_ADMIN_PASSWORD 重建)。
+# 管理员密码重置请求:cmd/main 启动前消费(把新口令投递给 core 原地改哈希;
+# **不删 admin 用户** ⇒ admin 的 user id 不变,名下分享/API Key 不成孤儿)。
 if [ -n "$PB_ADMIN_PASSWORD" ]; then
   : > "${TRIM_PKGVAR}/.admin_reset" 2>/dev/null || : > "${TRIM_APPDEST}/.admin_reset" 2>/dev/null || true
   echo "admin password reset requested (consumed on next start)"
