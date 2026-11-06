@@ -284,6 +284,34 @@ else
     fi
 fi
 
+# ── 判据 ⑥：登录 401 ⇒ 提示必须点名「.env 口令已过期」─────────────────
+#   用户体验缺口：登录失败只说「登录失败 ⇒ 跳过」时，用户不知道是
+#   .env 里的 PB_ADMIN_PASSWORD 与库中口令不符（改过口令/口令过期）。
+#   ⇒ 401（凭据被拒）时提示必须点名 .env 口令已过期。
+echo "── 判据 ⑥：登录 401 ⇒ 提示点名 .env 口令已过期"
+rm -f "$DATA/.beam_box_api_key"
+curl -s -m 5 -X POST "http://127.0.0.1:${BOX_PORT}/__invalidate" >/dev/null 2>&1
+OUT6="$(PB_SERVER_PORT="$BOX_PORT" PB_P2PCWEB_PORT="$BEAM_PORT" PB_DATA_PATH="$DATA" \
+    PB_ADMIN_PASSWORD=wrong-pass PB_PREWIRE_WAIT_MAX=10 bash "$PREWIRE" 2>&1)"
+if printf '%s' "$OUT6" | grep -q '口令已过期'; then
+    note_ok "登录失败提示点名「.env 口令已过期」"
+else
+    note_fail "登录失败提示未点名 .env 口令已过期（实得：$(printf '%s' "$OUT6" | grep '登录失败' | head -1)）"
+fi
+
+# ── 负对照 D：提示退回旧文案 ⇒ 判据 ⑥ 必须红 ──────────────────────────
+echo "── 负对照 D：提示退回旧文案（判据 ⑥ 必须红）"
+BAD4="$TMP/prewire-bad4.sh"
+sed 's|⇒ .env 口令已过期（PB_ADMIN_PASSWORD 与库中口令不符）||' "$PREWIRE" > "$BAD4"
+rm -f "$DATA/.beam_box_api_key"
+curl -s -m 5 -X POST "http://127.0.0.1:${BOX_PORT}/__invalidate" >/dev/null 2>&1
+OUTD="$(PB_SERVER_PORT="$BOX_PORT" PB_P2PCWEB_PORT="$BEAM_PORT" PB_DATA_PATH="$DATA" \
+    PB_ADMIN_PASSWORD=wrong-pass PB_PREWIRE_WAIT_MAX=10 bash "$BAD4" 2>&1)"
+if printf '%s' "$OUTD" | grep -q '口令已过期'; then
+    note_fail "坏副本仍出现新文案 ⇒ 变异无效，判据 ⑥ 无牙齿"
+else
+    note_ok "坏副本退回旧文案（判据 ⑥ 能抓住它）"
+fi
 if [ "$fails" -gt 0 ]; then
     echo
     echo "✗ $fails 条判据失效"
