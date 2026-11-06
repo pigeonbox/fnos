@@ -102,14 +102,28 @@ fi
 
 # ── 3. 没有可用 Key ⇒ 登录 + 建一把 ───────────────────────────────────
 if [ -z "$cached_key" ]; then
-    # 3a. 登录拿会话 token（口令**不打印**）
+    # 3a. 登录拿会话 token（口令**不打印**）—— 一并抓 HTTP 码，
+    #     区分「.env 口令已过期」与网络/服务端其它失败（401=凭据被拒）。
     login_body=$(printf '{"username":"admin","password":"%s"}' "${PB_ADMIN_PASSWORD}")
-    login_resp=$(curl -sS -m 8 -X POST "${BOX_BASE}/admin/login" \
-        -H 'Content-Type: application/json' --data-binary "$login_body" 2>/dev/null)
+    login_out=$(curl -sS -m 8 -X POST "${BOX_BASE}/admin/login" \
+        -H 'Content-Type: application/json' --data-binary "$login_body" \
+        -w $'\n%{http_code}' 2>/dev/null)
+    login_code=${login_out##*$'\n'}
+    login_resp=${login_out%$'\n'*}
     token=$(printf '%s' "$login_resp" \
         | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
     if [ -z "$token" ]; then
-        log "登录失败 ⇒ 跳过（Beam 仍需手填）"
+        case "$login_code" in
+            401)
+                log "登录失败（HTTP 401）⇒ .env 口令已过期（PB_ADMIN_PASSWORD 与库中口令不符）⇒ 跳过（Beam 仍需手填）"
+                ;;
+            429)
+                log "登录失败（HTTP 429，失败锁定中）⇒ 跳过（Beam 仍需手填）"
+                ;;
+            *)
+                log "登录失败（HTTP ${login_code:-000}）⇒ 跳过（Beam 仍需手填）"
+                ;;
+        esac
         exit 0
     fi
     # 3b. 创建专用 Key（全量 scope，名字固定 ⇒ 用户在管理台一眼认得、可撤销）
