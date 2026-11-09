@@ -127,6 +127,22 @@ jobs:
         run: |
           bash scripts/check-upgrade-inplace-pkgvar.sh
           bash scripts/check-upgrade-inplace-cmd-sync.sh
+      # 原地换装门禁③（2026-11-10，fnos#200/#201）：
+      #   ① **启停走框架托管**(appcenter-cli start/stop)—— 框架注入的
+      #      TRIM_APPDEST / TRIM_APPNAME / TRIM_API_TOKEN 只有框架拉起时才有；
+      #      手工 nohup 起进程拿不到 ⇒ adapter 判不出原生应用环境
+      #      ⇒ /api/fnos/capabilities 回报 gateway=false/sso=false
+      #      ⇒ 面板「统一网关免登录」**静默失效**（而升级脚本退出码 0、
+      #      版本自证全绿 ⇒ 静默半升级）。真机实录（10.10.30.253）：
+      #      改用 appcenter-cli stop/start 后恢复 {true, true}。
+      #   ② **注册表版本要同步** —— 面板显示的版本来自宿主 PostgreSQL 的
+      #      appcenter 库（**不在**容器里的 pg18）⇒ 不同步就是
+      #      「面板 4.8.6 / 实跑 5.7.0」。
+      #   ③ 两条**有牙齿**的断言在**沙箱模式**下必须跳过并说明原因
+      #      （离线门禁不得被真机断言打断）。
+      - name: 原地换装门禁（框架托管启停 + 网关/版本断言）
+        if: always()
+        run: bash scripts/check-upgrade-inplace-framework-start.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pigeonbox-fpk
