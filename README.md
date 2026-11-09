@@ -49,6 +49,21 @@
 
 > v1.2.7 起 fpk 为原生进程模式：包内自带双架构静态二进制+内嵌前端，安装运行免 Docker 免拉镜像。2026-10-09 起本仓**只发布原生 fpk**，Docker 镜像链路已整体移除。
 
+### 升级（原地换装）
+
+fnOS 应用中心装不了原生第三方包、`install-fpk` 对已装应用是 no-op ⇒ 升级走**原地换装脚本**（动手前先备份：`install-local` 是「卸载→安装」语义，会连 `@appdata` 与注册表行一起删）：
+
+```bash
+sudo bash scripts/upgrade-inplace.sh <pigeonbox.fpk>
+```
+
+⚠️ **两条硬规矩**（2026-11-10 真机实录，10.10.30.253 4.8.6→5.7.0）：
+
+1. **升级后的启停必须走框架托管**（`appcenter-cli stop/start`）。`TRIM_APPDEST` / `TRIM_APPNAME` / `TRIM_API_TOKEN` 是**框架拉起生命周期脚本时注入**的 ⇒ 手工拉进程就没有 ⇒ `/api/fnos/capabilities` 回报 `gateway=false/sso=false` ⇒ 面板「统一网关免登录」**静默失效**（而脚本退出码 0、版本自证全绿 ⇒ 静默半升级）。现在换装脚本默认走框架托管启停，收尾有断言把关。
+2. **应用中心注册表在宿主 PostgreSQL 15 的 `appcenter` 库里，不在容器里的 pg18**。换装只换磁盘文件 ⇒ 不同步注册表就是「面板 4.8.6、实跑 5.7.0」。
+
+完整说明（含断言判据、补救命令、沙箱行为）见 **[docs/upgrade.md](docs/upgrade.md)**。
+
 ## 应用内配置（安装后可改）
 
 飞牛应用中心 → 应用设置 → 配置面板，可随时修改（提交后应用自动重启生效）：
