@@ -52,7 +52,7 @@ jobs:
           [ "$MV" = "${VER#v}" ] || { echo "::error::fnos/manifest version=$MV ≠ tag $VER——发版走 hub 列车 bump,勿手改 manifest"; exit 1; }
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: "1.26.10"
+          go-version: "1.26.11"
           cache-dependency-path: go.sum
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
