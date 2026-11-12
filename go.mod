@@ -2,7 +2,7 @@ module github.com/pigeonbox/fnos
 
 go 1.26.5
 
-toolchain go1.26.10
+toolchain go1.26.11
 
 require (
 	github.com/cloudwego/hertz v0.10.6
