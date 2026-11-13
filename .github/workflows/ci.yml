@@ -39,6 +39,21 @@ jobs:
       - name: Govulncheck
         if: always()
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+      # 钉版对账守卫（2026-11-13，U2b 疑虑 1 / PREP-D，Refs pigeonbox/pigeonbox#327）：
+      #   fnos 此前是三平台仓里**唯一没有任何 CORE_PIN 校验点**的——qnap 的断言内嵌在
+      #   release.yml（只有打 tag 才跑 ⇒ 「PR 全绿 ≠ 守卫全绿」的既有教训），openwrt 有
+      #   完整 scripts/check-build-pin.sh ⇒ go.mod 与 DEPS.env 的 CORE_PIN 漂移无人抓。
+      #   ⇒ 断言必须挂在**本文件（pull_request 触发）**：放 release.yml 等于漂移已经打进
+      #   产物才报。DEPS.env 是第二份钉版真相源（hub 列车 trainctl bump 写入），与 go.mod
+      #   平行 ⇒ 只改一边（或 bump 漏改）即红，防「版本幽灵」（qnap 2.1.0 实录）。
+      - name: 钉版对账(DEPS.env CORE_PIN == go.mod；FRONTEND_CORE_PIN == web tgz URL)
+        if: always()
+        run: bash scripts/check-build-pin.sh
+      # 负对照自测（守卫自己要有牙齿）：在临时目录里逐条制造漂移 ⇒ 必须**逐条判红并点名**，
+      #   复位后恢复绿；任一条判据无区分力（如变异没打中、判据恒真）⇒ 本步自己红。
+      - name: 钉版对账负对照自测(制造漂移必须逐条判红点名)
+        if: always()
+        run: bash scripts/check-build-pin.sh --selfcheck
 
   # 应用包打包校验:fnos/ 目录结构/manifest/生命周期脚本任何回退都会在此失败,
   # 并产出可安装的 .fpk 供手动装机验证。
