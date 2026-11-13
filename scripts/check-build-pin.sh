@@ -171,11 +171,13 @@ if [ "$SELFCHECK" -eq 1 ]; then
     local name="$1" needle="$2" out rc
     out="$(pin_check "$SELF_TMP" 2>&1)"; rc=$?
     if [ "$rc" -eq 0 ]; then
-      sc_bad "$name：制造漂移后守卫仍绿" "断言无效"
+      # 变量一律显式花括号（${name} 形态）：变量名后紧跟全角标点会让 bash 把全角
+      # 字符并进变量名 ⇒ hub 门禁 check-shell-var-boundary.sh 判红（2026-11-13 实证）。
+      sc_bad "${name}：制造漂移后守卫仍绿" "断言无效"
     elif printf '%s' "$out" | grep -qF "$needle"; then
-      sc_ok "$name ⇒ 判红并点名「$needle」"
+      sc_ok "${name} ⇒ 判红并点名「${needle}」"
     else
-      sc_bad "$name：判红但没点名「$needle」" "输出=$(printf '%s' "$out" | tr '\n' ';' | tail -c 200)"
+      sc_bad "${name}：判红但没点名「${needle}」" "输出=$(printf '%s' "$out" | tr '\n' ';' | tail -c 200)"
     fi
     reset_fixtures
   }
