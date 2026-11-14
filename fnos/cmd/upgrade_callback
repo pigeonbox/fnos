@@ -9,10 +9,26 @@ DB="${DATA_DIR}/fileCodeBox.db"
 [ -f "$DB" ] || exit 0
 
 STAMP=$(date +%Y%m%d-%H%M%S)
-cp "$DB" "${DB}.bak-${STAMP}" 2>/dev/null || exit 0
+if ! cp "$DB" "${DB}.bak-${STAMP}"; then
+  # 失败必须可见(fnos#211):此前 `cp … 2>/dev/null || exit 0` 零日志静默跳过
+  # ⇒ 卷满/权限变化时既没有回滚点也**零痕迹**(不可逆迁移最需要回滚点的恰恰是
+  # 这种时刻)。cp 自身的报错也放出来(不再 2>/dev/null)。
+  # 仍以 0 退出:本回调退出码在 fnOS 框架侧的语义未验证,非 0 是否中止升级不可控
+  # ⇒ 不赌;改用 stderr + syslog 双通道留痕(排查时可查,与 openwrt 钩子同口径)。
+  echo "pigeonbox upgrade_callback: 升级前业务库快照失败(${DB})——本次升级将没有回滚点,请检查存储空间/权限" >&2
+  if command -v logger >/dev/null 2>&1; then
+    logger -t pigeonbox "upgrade_callback: DB snapshot failed: ${DB} (no rollback point for this upgrade)" 2>/dev/null || true
+  fi
+  exit 0
+fi
 
-# 轮转:仅保留最近 3 份备份
-ls -t "${DB}".bak-* 2>/dev/null | tail -n +4 | while read -r old; do
+# 轮转:仅保留最近 3 份——按**文件名**排序(qnap qpkg/package_routines 同口径):
+# 文件名是定宽时间戳(YYYYMMDD-HHMMSS),字典序=时间序;而按 mtime(ls -t)会被
+# cp -a / 备份还原 / 时钟回拨改掉 ⇒ 可能淘汰错对象(丢掉最新回滚点)。
+for old in "${DB}".bak-*; do
+  [ -f "$old" ] || continue
+  printf '%s\n' "$old"
+done | sort -r | tail -n +4 | while read -r old; do
   rm -f "$old"
 done
 echo "db backup saved: ${DB}.bak-${STAMP}"
