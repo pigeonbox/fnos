@@ -121,6 +121,12 @@ jobs:
       - name: Beam 出厂预接线自测（幂等 + scope 精确 + 不冲 registry）
         if: always()
         run: bash scripts/prewire-beam-box-selftest.sh
+      # 升级前业务库快照回调（fnos#211）：失败此前 `cp … || exit 0` 静默零日志、
+      # 轮转按 mtime——都是「错了也不会有人喊」的形态（没有回滚点且零痕迹）
+      # ⇒ 必须有能判红的机械化判据 + 变异负对照（告警可判红 / 按名轮转可判红）。
+      - name: 升级前快照回调自测（失败必留痕 + 按文件名轮转，自证判红）
+        if: always()
+        run: bash scripts/upgrade-callback-selftest.sh --selfcheck
       # 管理员口令重置「原地生效」门禁（2026-11-04，fnos#182）：
       # 向导的「重置管理员口令」此前是**平台层删 admin 行**（DELETE FROM users）
       # ⇒ core 按 env 重建 ⇒ admin 的 **user id 变化**

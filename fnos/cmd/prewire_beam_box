@@ -75,6 +75,20 @@ if [ "$ready" != "1" ]; then
     exit 0
 fi
 
+# ── 凭据一律不进 argv（fnos#210 / qnap#190 / openwrt#201）────────────────
+#   Linux /proc/<pid>/cmdline 是 0444 **世界可读** ⇒ admin 口令/会话 Token/API Key
+#   一旦出现在 curl 的 -H/-d 参数里，本地任意进程都能在 curl 窗口（-m8）里读到。
+#   ⇒ body 走 stdin 管道：printf '…' | curl … --data-binary @-
+#   ⇒ 头走 curl 配置文件：curl -K -（-K/--config，「-」= 从 stdin 读配置），
+#     配置行形如 header = "Authorization: Bearer …"
+#   ⇒ 同一次调用既要有头又要有 body 的（写 p2pcweb 配置那发），
+#     头用 -K <(...) 进程替换分流、body 仍走 stdin（一次 curl 只有一个 stdin）。
+#   兼容依据：-K/--config 与「--data @file / @-」都是 curl 4.x（1998 年前后）
+#   就有的老特性，OpenWrt/QTS/fnOS 发行的 curl 7.x 全线支持；刻意**不用**较新的
+#   -H @file（curl ≥7.55 才有）。进程替换是 bash 特性（本脚本 shebang 即 bash，
+#   三端调用方也都是 bash …/shebang 执行），不引入新的 curl 版本要求。
+#   ⚠️ 三端本脚本必须**字节一致**（hub 门禁 check-nas-prewire-consistency.sh）。
+#
 # ── 2. 复用缓存的 Key（校验有效性）────────────────────────────────────
 #    ⚠️ 校验必须**打到真正会被读到的量**上：用 API Key 头访问受鉴权端点，
 #    200 = 有效；401/403 = 已失效 ⇒ 走重建。
@@ -87,8 +101,10 @@ if [ -n "$cached_key" ]; then
     #   /user/api-keys 是**会话面**（AuthMiddleware）⇒ 用 API Key 调恒 401
     #   ⇒ 会把「好 Key」误判成「已失效」⇒ 每次启动都重建一把（Key 列表膨胀）。
     #   /api/v1/user/shares 走 UserOrAPIKey ⇒ 只读、无副作用、认 X-API-Key。
-    code=$(curl -s -o /dev/null -w '%{http_code}' -m 5 \
-        -H "X-API-Key: ${cached_key}" "${BOX_BASE}/api/v1/user/shares" 2>/dev/null)
+    # Key 是凭据 ⇒ 头走 stdin 配置（-K -），不进 argv。
+    code=$(printf 'header = "X-API-Key: %s"\n' "$cached_key" \
+        | curl -s -o /dev/null -w '%{http_code}' -m 5 -K - \
+        "${BOX_BASE}/api/v1/user/shares" 2>/dev/null)
     case "$code" in
         200)
             log "复用缓存的 API Key（校验 ${code}）"
@@ -104,9 +120,10 @@ fi
 if [ -z "$cached_key" ]; then
     # 3a. 登录拿会话 token（口令**不打印**）—— 一并抓 HTTP 码，
     #     区分「.env 口令已过期」与网络/服务端其它失败（401=凭据被拒）。
-    login_body=$(printf '{"username":"admin","password":"%s"}' "${PB_ADMIN_PASSWORD}")
-    login_out=$(curl -sS -m 8 -X POST "${BOX_BASE}/admin/login" \
-        -H 'Content-Type: application/json' --data-binary "$login_body" \
+    # 口令是凭据 ⇒ body 走 stdin 管道（printf | curl --data-binary @-），不进 argv。
+    login_out=$(printf '{"username":"admin","password":"%s"}' "${PB_ADMIN_PASSWORD}" \
+        | curl -sS -m 8 -X POST "${BOX_BASE}/admin/login" \
+        -H 'Content-Type: application/json' --data-binary @- \
         -w $'\n%{http_code}' 2>/dev/null)
     login_code=${login_out##*$'\n'}
     login_resp=${login_out%$'\n'*}
@@ -128,8 +145,11 @@ if [ -z "$cached_key" ]; then
     fi
     # 3b. 创建专用 Key（全量 scope，名字固定 ⇒ 用户在管理台一眼认得、可撤销）
     create_body=$(printf '{"name":"%s","scopes":%s}' "$KEY_NAME" "$SCOPES_JSON")
-    create_resp=$(curl -sS -m 8 -X POST "${BOX_BASE}/user/api-keys" \
-        -H "Authorization: Bearer ${token}" -H 'Content-Type: application/json' \
+    # 会话 Token 是凭据 ⇒ 头走 stdin 配置（-K -）；create_body 只含 Key 名字与
+    # scope（非敏感）⇒ 留 argv，不与 stdin 抢占。
+    create_resp=$(printf 'header = "Authorization: Bearer %s"\n' "$token" \
+        | curl -sS -m 8 -X POST "${BOX_BASE}/user/api-keys" \
+        -K - -H 'Content-Type: application/json' \
         --data-binary "$create_body" 2>/dev/null)
     cached_key=$(printf '%s' "$create_resp" \
         | sed -n 's/.*"key"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
@@ -154,9 +174,14 @@ fi
 config_body=$(printf '{"server_url":"%s","box_api_key":"%s"}' "$BOX_BASE" "$cached_key")
 # ⚠️ p2pcweb 的 guard：令牌走 **X-P2PCWEB 头**；
 #   只有首页 `/` 才认 `?t=`（query）⇒ 用 `?t=` 调 API 恒 403「令牌无效」（真机实录）。
-config_resp=$(curl -sS -m 8 -X POST "${BEAM_BASE}/api/config" \
-    -H "X-P2PCWEB: ${beam_token}" -H 'Content-Type: application/json' \
-    --data-binary "$config_body" 2>/dev/null)
+# 这一发头（p2pcweb 会话 Token）与 body（全量 scope API Key）**都敏感** ⇒
+# 头用 -K <(...) 进程替换分流、body 走 stdin 管道（一次 curl 只有一个 stdin，
+# -K - 与 @- 不能同用）。
+config_resp=$(printf '%s' "$config_body" \
+    | curl -sS -m 8 -X POST "${BEAM_BASE}/api/config" \
+    -K <(printf 'header = "X-P2PCWEB: %s"\n' "$beam_token") \
+    -H 'Content-Type: application/json' \
+    --data-binary @- 2>/dev/null)
 case "$config_resp" in
     *'"ok"'*)
         log "已预置 Beam 文件柜（地址 ${BOX_BASE} + 专用 API Key）"
