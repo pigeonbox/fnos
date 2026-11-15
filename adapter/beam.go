@@ -65,7 +65,9 @@ func MountBeam(h *server.Hertz) {
 		if err != nil || hn == "" {
 			hn = host
 		}
-		target := fmt.Sprintf("http://%s/?t=%s", net.JoinHostPort(hn, port), beamToken)
+		// fnos#212：令牌改走 fragment（#t=）——不进服务端/代理/浏览器历史的
+		// query 日志面；p2pcweb 自本版起同时读 #t= 与旧 ?t=（协同改造，同包共版发布）。
+		target := fmt.Sprintf("http://%s/#t=%s", net.JoinHostPort(hn, port), beamToken)
 		logger.Info("beam 入口跳转", zap.String("host", net.JoinHostPort(hn, port)))
 		c.Redirect(consts.StatusFound, []byte(target))
 	})
