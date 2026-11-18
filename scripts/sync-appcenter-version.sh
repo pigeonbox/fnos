@@ -26,64 +26,74 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# ── shellkit v1.0.0 公共库（编译/部署/CI 侧管道：日志/退出码/参数解析/清理）──
+# vendor/shellkit 是**上游镜像**（shellkit vendor . 生成）⇒ 一个字节都不许手改；
+# 完整性由 hub 侧 scripts/check-shellkit-vendor.sh 逐文件 sha256 对账。
+# ⚠️ 不给 shellcheck 指路：vendor/ 是上游镜像，不进 shellcheck 射程。
+. "${REPO_ROOT}/vendor/shellkit/lib/bootstrap.sh"
+export SHELLKIT_LANG="${SHELLKIT_LANG:-zh_CN}" # 库内消息走中文，与生态输出一致
+
 # shellcheck source=scripts/fnos-env.sh
 . "${SCRIPT_DIR}/fnos-env.sh"
 
 VERSION=""
 APP_NAME="pigeonbox"
 DRY_RUN=0
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --version)
-      VERSION="${2:-}"
-      shift 2
-      ;;
-    --app-name)
-      APP_NAME="${2:-}"
-      shift 2
-      ;;
-    --dry-run)
-      DRY_RUN=1
-      shift
-      ;;
+
+# -h/--help：沿用原来的用法输出 ⇒ 在 cli_opts 之前先截住。
+#   取法从固定行号 '2,30p' 改成「第 2 行起的注释块」——文件头插了公共库引导块后
+#   固定行号会漂到代码行上（原来就已经漂到 set 行上了）。
+for arg in "$@"; do
+  case "$arg" in
     -h | --help)
-      sed -n '2,30p' "$0"
-      OK=1
+      sed -n '2,/^[^#]/p' "$0" | sed '$d'
       exit 0
       ;;
-    *)
-      echo "✗ 未知参数：$1"
+    # 原实现只认「--version 5.7.0」这种写法；'--version=5.7.0' 一律当未知参数(exit 2)
+    # ⇒ 这里显式保持同一口径（cli_opts 本身是接受 '=' 写法的）。
+    --*=*)
+      echo "✗ 未知参数：$arg" >&2
       exit 2
       ;;
   esac
 done
+
+# 参数解析：手写 case 循环 ⇒ shellkit 的 cli_opt/cli_opts
+#   · 未知选项 / 缺值 ⇒ cli_opts 返回 2（= 原来的「未知参数」退出码，逐字一致）
+#   · 顺带修掉一个挂死：原实现里 '--version' 后面没跟值时 shift 2 失败且**不推进**
+#     ⇒ while 循环原地打转（永远出不来）⇒ 现在由 cli_opts 直接判「缺值」并退出 2。
+cli_opt_init
+cli_opt VERSION --version "" 1
+cli_opt APP_NAME --app-name "" 1
+cli_opt DRY_RUN --dry-run "" 0
+cli_opts "$@" || exit 2
 
 # 临时 SQL 文件(权限 644 => 切到 postgres 用户后仍可读)。
 SQLFILE="$(mktemp)"
 chmod 644 "${SQLFILE}"
 # ⚠️ EXIT trap 必须**保留退出码**(hub 门禁 check-shell-trap-exit-code.sh):
 #   macOS bash 3.2 下未定义变量失败时 trap 入口的 $? 是 0 => 失败被报成 exit 0
-#   => 门禁形同虚设。正确形态=成功哨兵:结尾置 OK=1,trap 里 rc≠0 原样返回。
-OK=0
-# shellcheck disable=SC2154  # rc 在 trap 体内赋值，shellcheck 看不见
-trap 'rc=$?; rm -f "${SQLFILE}"; if [ "${rc}" -ne 0 ]; then exit "${rc}"; fi; if [ "${OK:-0}" != 1 ]; then exit 1; fi; exit 0' EXIT
+#   => 门禁形同虚设。
+#   ⇒ 现在由 shellkit 的 trap_push + trap_install 承担：清理动作进栈，退出时取 $?
+#     并原样 exit（不再依赖「成功哨兵」那套手写形态）。
+#   ⇒ 原「成功哨兵 OK=1」在本脚本里是冗余：本脚本**没有 set -e**，但每条失败路径都
+#     显式 exit 1、每条跳过路径都显式 exit 0 ⇒ 哨兵永远不会把 0 变成 1。
+trap_push 'rm -f "${SQLFILE}"'
+trap_install
 
-if [ -z "${VERSION}" ]; then
-  echo "✗ 缺 --version(目标版本)——用法：bash $0 --version <ver> [--app-name pigeonbox]"
-  exit 2
-fi
+[ -z "${VERSION}" ] && die 2 "✗ 缺 --version(目标版本)——用法：bash $0 --version <ver> [--app-name pigeonbox]"
 if [ "${PB_UPGRADE_SANDBOX:-0}" = "1" ]; then
-  echo "[sandbox] 跳过应用中心注册表版本同步：沙箱模式不碰宿主 PostgreSQL"
-  OK=1
+  log_info "[sandbox] 跳过应用中心注册表版本同步：沙箱模式不碰宿主 PostgreSQL"
   exit 0
 fi
 
 # ── 前置事实:宿主 PostgreSQL 客户端在不在 ──────────────────────────────────
 PSQL_BIN="$(command -v psql 2>/dev/null || true)"
 if [ -z "${PSQL_BIN}" ]; then
-  echo "⊘ 跳过应用中心注册表版本同步：本机没有 psql 客户端 => 不是 fnOS 宿主(或未装 PostgreSQL)"
-  echo "  (说明：应用中心注册表在宿主 PostgreSQL 里；非 fnOS 主机没有这张表，同步无从谈起)"
-  OK=1
+  log_info "⊘ 跳过应用中心注册表版本同步：本机没有 psql 客户端 => 不是 fnOS 宿主(或未装 PostgreSQL)"
+  log_info "  (说明：应用中心注册表在宿主 PostgreSQL 里；非 fnOS 主机没有这张表，同步无从谈起)"
   exit 0
 fi
 
@@ -102,47 +112,40 @@ run_pg() { # <sql> ; 打印结果行(失败返回非 0)
 
 # ── 前置事实:appcenter 库与 app 表在不在 ──────────────────────────────────
 if ! run_pg "SELECT 1 FROM app LIMIT 1" >/dev/null 2>&1; then
-  echo "⊘ 跳过应用中心注册表版本同步：宿主 PostgreSQL 上没有可用的 appcenter 库/app 表"
-  echo "  (说明：注册表在**宿主** PostgreSQL 15 的 appcenter 库里，不在容器里的 pg18；"
-  echo "        若本机确实装了应用中心却查不到这张表，请核对该机 pg_hba/库名)"
-  OK=1
+  log_info "⊘ 跳过应用中心注册表版本同步：宿主 PostgreSQL 上没有可用的 appcenter 库/app 表"
+  log_info "  (说明：注册表在**宿主** PostgreSQL 15 的 appcenter 库里，不在容器里的 pg18；"
+  log_info "        若本机确实装了应用中心却查不到这张表，请核对该机 pg_hba/库名)"
   exit 0
 fi
 
 CURRENT="$(run_pg "SELECT version FROM app WHERE app_name='${APP_NAME}'" 2>/dev/null | head -1 | tr -d '[:space:]' || true)"
 if [ -z "${CURRENT}" ]; then
-  echo "⊘ 跳过应用中心注册表版本同步：appcenter.app 里没有 app_name='${APP_NAME}' 的行"
-  echo "  (说明：本应用未在应用中心注册，面板本来就不显示它，无需同步)"
-  OK=1
+  log_info "⊘ 跳过应用中心注册表版本同步：appcenter.app 里没有 app_name='${APP_NAME}' 的行"
+  log_info "  (说明：本应用未在应用中心注册，面板本来就不显示它，无需同步)"
   exit 0
 fi
 
-echo "── 应用中心注册表当前版本：${CURRENT} => 目标版本：${VERSION}"
+log_info "── 应用中心注册表当前版本：${CURRENT} => 目标版本：${VERSION}"
 if [ "${CURRENT}" = "${VERSION}" ]; then
-  echo "✓ 注册表版本已是 ${VERSION}，无需改动"
-  OK=1
+  log_ok "✓ 注册表版本已是 ${VERSION}，无需改动"
   exit 0
 fi
 
 if [ "${DRY_RUN}" = "1" ]; then
-  echo "[dry-run] 将执行：UPDATE app SET version='${VERSION}' WHERE app_name='${APP_NAME}';"
-  OK=1
+  log_info "[dry-run] 将执行：UPDATE app SET version='${VERSION}' WHERE app_name='${APP_NAME}';"
   exit 0
 fi
 
 SQL="UPDATE app SET version='${VERSION}' WHERE app_name='${APP_NAME}';"
 if ! run_pg "${SQL}" >/dev/null 2>&1; then
-  echo "✗ 应用中心注册表版本同步失败（UPDATE 未成功）"
-  echo "  手工补救： sudo su postgres -c \"psql -d appcenter -c \\\"UPDATE app SET version='${VERSION}' WHERE app_name='${APP_NAME}';\\\"\""
-  exit 1
+  die 1 "✗ 应用中心注册表版本同步失败（UPDATE 未成功）
+  手工补救： sudo su postgres -c \"psql -d appcenter -c \\\"UPDATE app SET version='${VERSION}' WHERE app_name='${APP_NAME}';\\\"\""
 fi
 
 AFTER="$(run_pg "SELECT version FROM app WHERE app_name='${APP_NAME}'" 2>/dev/null | head -1 | tr -d '[:space:]' || true)"
 if [ "${AFTER}" != "${VERSION}" ]; then
-  echo "✗ 注册表版本同步后回读为 '${AFTER}'，与目标 ${VERSION} 不符"
-  echo "  手工补救： sudo su postgres -c \"psql -d appcenter -c \\\"UPDATE app SET version='${VERSION}' WHERE app_name='${APP_NAME}';\\\"\""
-  exit 1
+  die 1 "✗ 注册表版本同步后回读为 '${AFTER}'，与目标 ${VERSION} 不符
+  手工补救： sudo su postgres -c \"psql -d appcenter -c \\\"UPDATE app SET version='${VERSION}' WHERE app_name='${APP_NAME}';\\\"\""
 fi
-echo "✓ 应用中心注册表版本已同步：${CURRENT} => ${AFTER}"
-OK=1
+log_ok "✓ 应用中心注册表版本已同步：${CURRENT} => ${AFTER}"
 exit 0

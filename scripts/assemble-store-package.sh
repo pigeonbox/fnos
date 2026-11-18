@@ -11,15 +11,23 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# ── shellkit v1.0.0 公共库（编译/部署/CI 侧管道：日志/退出码/临时目录/清理）──
+# vendor/shellkit 是**上游镜像**（`shellkit vendor .` 生成）⇒ 一个字节都不许手改；
+# 完整性由 hub 侧 scripts/check-shellkit-vendor.sh 逐文件 sha256 对账。
+. "$REPO_ROOT/vendor/shellkit/lib/bootstrap.sh"
+export SHELLKIT_LANG="${SHELLKIT_LANG:-zh_CN}" # 库内消息走中文，与生态输出一致
+
 VERSION="${1:-$(cat "$REPO_ROOT/VERSION")}"
 FPK_SRC="${FPK_SRC:-}"
 SHOTS_DIR="${SHOTS_DIR:-$REPO_ROOT/../docs-site/public/screenshots}"
 OUT_ROOT="${OUT_ROOT:-$REPO_ROOT/dist/store-submission}"
 PKG_NAME="pigeonbox-fnos-store-v${VERSION}"
-WORK="$(mktemp -d)"
-OK=0
-# shellcheck disable=SC2154  # rc 在 trap 体内赋值，shellcheck 看不见
-trap 'rc=$?; rm -rf "$WORK"; if [ "$rc" -ne 0 ]; then exit $rc; fi; if [ "${OK:-0}" != 1 ]; then exit 1; fi; exit 0' EXIT
+# 临时目录 + 清理：shellkit 的 fs_tmp_init（清理动作进栈）+ trap_install。
+# 原手写 EXIT trap 的「保留退出码」语义由 trap_install 承担（退出码原样交还）；
+# 原「成功哨兵 OK=1」在本脚本(set -e)里是冗余——跑不到结尾必然已带非 0 退出码。
+fs_tmp_init || die 1 "临时目录初始化失败"
+WORK="$(fs_tmpdir)"
 
 # 截图清单: 源文件|成品名(编号即建议展示顺序;包内一律 ASCII 文件名防 Windows 解压乱码,
 # 中文名称写在 README 对照表;全部应为本版本真实 UI,禁止占位图)
@@ -34,54 +42,45 @@ pickup-multifile|07-pickup-files
 admin-dashboard|08-admin-dashboard
 '
 
-log() { printf '[store] %s\n' "$*"; }
-
 # ---- 1. fpk 就位 ----
 if [ -z "$FPK_SRC" ]; then
-  log "从 hub Release 下载 pigeonbox.fpk (fnos-v${VERSION})"
+  log_info "从 hub Release 下载 pigeonbox.fpk (fnos-v${VERSION})"
   FPK_SRC="$WORK/pigeonbox.fpk"
   gh release download "fnos-v${VERSION}" --repo pigeonbox/pigeonbox \
     --pattern 'pigeonbox.fpk' --output "$FPK_SRC" --clobber
 fi
-[ -f "$FPK_SRC" ] || {
-  log "fpk 不存在: $FPK_SRC"
-  exit 1
-}
+[ -f "$FPK_SRC" ] || die 1 "fpk 不存在: $FPK_SRC"
 
 # ---- 2. 从 fpk 自解析 manifest(说明与产物自洽;勿读工作区——可能含未发版改动) ----
 # 注意: fnpack 打包后 manifest 键值会对齐等号(desc   = ...),匹配须容忍空白
 tar -xzf "$FPK_SRC" -C "$WORK" manifest ICON.PNG ICON_256.PNG
 FPK_DESC="$(grep -E '^desc[[:space:]]*=' "$WORK/manifest" | head -1 | sed 's/^desc[[:space:]]*=[[:space:]]*//' || true)"
 FPK_VER="$(grep -E '^version[[:space:]]*=' "$WORK/manifest" | head -1 | sed 's/^version[[:space:]]*=[[:space:]]*//' | tr -d '[:space:]' || true)"
-[ -n "$FPK_DESC" ] || {
-  log "✗ fpk 内 manifest 无 desc 字段"
-  exit 1
-}
+[ -n "$FPK_DESC" ] || die 1 "✗ fpk 内 manifest 无 desc 字段"
 # 应用介绍可为富文本(应用中心按 HTML 白名单渲染),README 表格只留纯文本
 FPK_DESC_PLAIN="$(printf '%s' "$FPK_DESC" | sed 's/<[^>]*>//g')"
 if [ "$FPK_VER" != "$VERSION" ]; then
-  log "⚠ fpk 内版本($FPK_VER)与请求版本($VERSION)不一致,以 fpk 为准继续"
+  log_warn "⚠ fpk 内版本($FPK_VER)与请求版本($VERSION)不一致,以 fpk 为准继续"
   VERSION="$FPK_VER"
   PKG_NAME="pigeonbox-fnos-store-v${VERSION}"
 fi
 
 # 品牌代际校验: fpk 内图标须与打包源一致(防旧代图标混入;图标重生成后务必看本告警)
 if ! cmp -s "$WORK/ICON.PNG" "$REPO_ROOT/fnos/ICON.PNG"; then
-  log "⚠ fpk 内 ICON.PNG 与打包源不一致——确认是否旧代图标随包(图标重生成未随该 fpk 发布)"
+  log_warn "⚠ fpk 内 ICON.PNG 与打包源不一致——确认是否旧代图标随包(图标重生成未随该 fpk 发布)"
 fi
 
 # ---- 3. 组目录 ----
 PKG_DIR="$OUT_ROOT/$PKG_NAME"
 rm -rf "$PKG_DIR"
-mkdir -p "$PKG_DIR/screenshots"
+fs_ensure_dir "$PKG_DIR/screenshots"
 cp "$FPK_SRC" "$PKG_DIR/pigeonbox.fpk"
 cp "$WORK/ICON.PNG" "$WORK/ICON_256.PNG" "$PKG_DIR/"
 
 while IFS='|' read -r src dst; do
   [ -z "$src" ] && continue
   if [ ! -f "$SHOTS_DIR/$src.png" ]; then
-    log "✗ 缺截图 $src.png(于 $SHOTS_DIR)——先跑 docs-site 截图流水线或用 SHOTS_DIR 指定"
-    exit 1
+    die 1 "✗ 缺截图 $src.png(于 $SHOTS_DIR)——先跑 docs-site 截图流水线或用 SHOTS_DIR 指定"
   fi
   cp "$SHOTS_DIR/$src.png" "$PKG_DIR/screenshots/$dst.png"
 done <<<"$SHOT_LIST"
@@ -90,7 +89,7 @@ done <<<"$SHOT_LIST"
 if command -v sips >/dev/null 2>&1; then
   for f in "$PKG_DIR"/screenshots/*.png; do
     dims="$(sips -g pixelWidth -g pixelHeight "$f" 2>/dev/null | awk '/pixelWidth/{w=$2}/pixelHeight/{h=$2}END{print w"x"h}')"
-    [ "$dims" != "1366x900" ] && log "⚠ $(basename "$f") 尺寸 $dims ≠ 1366x900,展示会缩放不齐"
+    [ "$dims" != "1366x900" ] && log_warn "⚠ $(basename "$f") 尺寸 $dims ≠ 1366x900,展示会缩放不齐"
   done
 fi
 
@@ -154,7 +153,6 @@ EOF
 # ---- 5. 成包(先删旧包——zip 对已存在的包是追加不是重建,旧条目会残留) ----
 rm -f "$OUT_ROOT/$PKG_NAME.zip"
 (cd "$OUT_ROOT" && zip -rq "$PKG_NAME.zip" "$PKG_NAME")
-log "完成: $OUT_ROOT/$PKG_NAME.zip"
-log "  目录: $PKG_DIR"
+log_ok "完成: $OUT_ROOT/$PKG_NAME.zip"
+log_info "  目录: $PKG_DIR"
 ls -lh "$PKG_NAME.zip" 2>/dev/null || ls -lh "$OUT_ROOT/$PKG_NAME.zip"
-OK=1
