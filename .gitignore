@@ -12,7 +12,12 @@
 .vscode/
 
 # Go
-vendor/
+# ⚠️ 仓根的 vendor/ 装的是 **shellkit 上游镜像**（编译/部署/CI 侧脚本的公共库，
+#    由 `shellkit vendor .` 生成）⇒ 与 Go 的「依赖 vendor 目录」不是一回事。
+#    用 vendor/* 而不是 vendor/：目录级排除会让 git 不再下探该目录，
+#    `!vendor/shellkit/` 就再也救不回来（git 不会进入被排除的目录）。
+vendor/*
+!vendor/shellkit/
 
 # 飞牛打包产物
 fnos/*.fpk

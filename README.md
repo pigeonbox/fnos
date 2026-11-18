@@ -57,6 +57,8 @@ fnOS 应用中心装不了原生第三方包、`install-fpk` 对已装应用是 
 sudo bash scripts/upgrade-inplace.sh <pigeonbox.fpk>
 ```
 
+> ⚠️ 换装脚本依赖仓内 `vendor/shellkit` 公共库 ⇒ 拷到设备上执行时，须把 `scripts/` 与 `vendor/` **一起**带上。
+
 ⚠️ **两条硬规矩**（2026-11-10 真机实录，10.10.30.253 4.8.6→5.7.0）：
 
 1. **升级后的启停必须走框架托管**（`appcenter-cli stop/start`）。`TRIM_APPDEST` / `TRIM_APPNAME` / `TRIM_API_TOKEN` 是**框架拉起生命周期脚本时注入**的 ⇒ 手工拉进程就没有 ⇒ `/api/fnos/capabilities` 回报 `gateway=false/sso=false` ⇒ 面板「统一网关免登录」**静默失效**（而脚本退出码 0、版本自证全绿 ⇒ 静默半升级）。现在换装脚本默认走框架托管启停，收尾有断言把关。
@@ -129,7 +131,9 @@ cd fnos && fnpack build     # 产物 pigeonbox.fpk
 cd fnos && go build ./... && go test ./...
 
 # 独立构建:钉 go.mod 正式版本(与 CI 一致)
-GOWORK=off go test ./...
+# ⚠️ 独立构建要带 GOFLAGS=-mod=readonly:仓根 vendor/ 装的是 shellkit 上游镜像
+#    (脚本公共库),不是 Go 的依赖 vendor 目录 ⇒ 不带会报 "inconsistent vendoring"。
+GOWORK=off GOFLAGS=-mod=readonly go test ./...
 
 # 降级模式运行(业务全功能,飞牛能力关闭)
 go run ./cmd/fnos-adapter
@@ -139,7 +143,11 @@ go run ./cmd/fnos-adapter
 go run ./cmd/fnos-adapter
 ```
 
-或使用 `make build / test / run / fpack`。
+或使用 `make build / test / run / fpack`（make 目标已自动带上 `GOFLAGS=-mod=readonly`）。
+
+> ⚠️ 仓根 `vendor/shellkit/` 是 **shellkit v1.0.0 上游镜像**（编译/部署/CI 侧脚本的公共库，
+> 由 `shellkit vendor .` 生成，**勿手改**；完整性由 hub 侧 `scripts/check-shellkit-vendor.sh` 对账）。
+> 它占用 Go 的 `vendor/` 语义 ⇒ 任何**独立**的 go 命令（不带 `make`）都要带 `GOFLAGS=-mod=readonly`。
 
 ## 目录结构
 

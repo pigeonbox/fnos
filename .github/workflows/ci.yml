@@ -14,6 +14,11 @@ jobs:
       # toolchain 地板再抬时，Go 能自动拉取而不是构建失败（2026-10-26 实测：
       # 浮动 go-version 拿到低于地板的 patch ⇒ 直接构建失败，门禁变噪声）。
       GOTOOLCHAIN: auto
+      # ⚠️ -mod=readonly：仓根 vendor/ 装的是 **shellkit 上游镜像**（脚本公共库），
+      #    不是 Go 的依赖 vendor 目录 ⇒ 仓根有 vendor/ 时 go 会切 vendor 模式，
+      #    并因缺 vendor/modules.txt 报 "inconsistent vendoring" ⇒ 显式钉回
+      #    module 模式（= 引入 vendor/ 之前的默认行为：不许改 go.mod）。
+      GOFLAGS: -mod=readonly
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -65,6 +70,11 @@ jobs:
       # toolchain 地板再抬时，Go 能自动拉取而不是构建失败（2026-10-26 实测：
       # 浮动 go-version 拿到低于地板的 patch ⇒ 直接构建失败，门禁变噪声）。
       GOTOOLCHAIN: auto
+      # ⚠️ -mod=readonly：仓根 vendor/ 装的是 **shellkit 上游镜像**（脚本公共库），
+      #    不是 Go 的依赖 vendor 目录 ⇒ 仓根有 vendor/ 时 go 会切 vendor 模式，
+      #    并因缺 vendor/modules.txt 报 "inconsistent vendoring" ⇒ 显式钉回
+      #    module 模式（= 引入 vendor/ 之前的默认行为：不许改 go.mod）。
+      GOFLAGS: -mod=readonly
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
