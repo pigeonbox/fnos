@@ -1,10 +1,8 @@
 .PHONY: build test vet run fpack clean
 
-# ⚠️ -mod=readonly：仓根 vendor/ 是 **shellkit 上游镜像**（脚本公共库），不是 Go 的
-#    依赖 vendor 目录 ⇒ 仓根有 vendor/ 时 go 会切 vendor 模式并因缺 vendor/modules.txt
-#    报 "inconsistent vendoring" ⇒ 显式钉回 module 模式（= 引入 vendor/ 之前的默认
-#    行为：不许改 go.mod）。已设 GOFLAGS 时以调用方的为准。
-export GOFLAGS ?= -mod=readonly
+# ⚠️ 不设 GOFLAGS：shellkit 副本放 third_party/shellkit（不是 vendor/）⇒ 仓根没有
+#    Go 的「依赖 vendor 目录」⇒ go 走默认 module 模式（-mod=readonly 是 Go 1.16+
+#    的默认行为，go.mod 仍不许改）。
 
 # PigeonBox 飞牛(fnOS)应用适配层
 # 独立构建钉 go.mod 正式版本;在本仓目录直接跑会拾取上层 go.work 联编本地 core,

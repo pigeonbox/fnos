@@ -20,15 +20,16 @@ BIN_DIR="$PACK_DIR/app/bin"
 WWW_DIR="$PACK_DIR/app/www"
 
 # ── shellkit v1.0.0 公共库（编译/部署/CI 侧管道：日志/退出码/重试/下载校验）──
-# vendor/shellkit 是**上游镜像**（`shellkit vendor .` 生成）⇒ 一个字节都不许手改；
+# third_party/shellkit 是**上游镜像**（由 hub 侧 scripts/vendor-shellkit.sh 物化）⇒ 一个字节都不许手改；
 # 完整性由 hub 侧 scripts/check-shellkit-vendor.sh 逐文件 sha256 对账。
-. "$ROOT/vendor/shellkit/lib/bootstrap.sh"
+# ⚠️ 落点是 third_party/ 而不是 vendor/：Go ≥1.14 见到**模块根**下有 vendor/ 就默认切
+#    vendor 模式 ⇒ 缺 vendor/modules.txt ⇒ go build 报 "inconsistent vendoring"（实测现红）。
+. "$ROOT/third_party/shellkit/lib/bootstrap.sh"
 export SHELLKIT_LANG="${SHELLKIT_LANG:-zh_CN}" # 库内消息走中文，与生态输出一致
 
-# ⚠️ 仓根有 vendor/ 时 go 会把它当成 Go 的「依赖 vendor 目录」⇒ 切 vendor 模式
-#    ⇒ 因缺 vendor/modules.txt 而报 "inconsistent vendoring"。
-#    ⇒ 显式钉 -mod=readonly（= 引入 vendor/ 之前的默认行为：不许改 go.mod）。
-export GOFLAGS="${GOFLAGS:--mod=readonly}"
+# ⚠️ 不设 GOFLAGS：shellkit 副本已放 third_party/（不是 vendor/）⇒ 仓根没有 Go 的
+#    「依赖 vendor 目录」⇒ go 走默认 module 模式，不会报 "inconsistent vendoring"。
+#    （go.mod 仍不许改：-mod=readonly 是 Go 1.16+ 的默认行为。）
 
 require_cmd go || exit 3 # 前置依赖（此前是 "go: command not found"=127）
 

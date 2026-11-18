@@ -29,10 +29,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # ── shellkit v1.0.0 公共库（编译/部署/CI 侧管道：日志/退出码/参数解析/清理）──
-# vendor/shellkit 是**上游镜像**（shellkit vendor . 生成）⇒ 一个字节都不许手改；
+# third_party/shellkit 是**上游镜像**（由 hub 侧 scripts/vendor-shellkit.sh 物化）⇒ 一个字节都不许手改；
 # 完整性由 hub 侧 scripts/check-shellkit-vendor.sh 逐文件 sha256 对账。
-# ⚠️ 不给 shellcheck 指路：vendor/ 是上游镜像，不进 shellcheck 射程。
-. "${REPO_ROOT}/vendor/shellkit/lib/bootstrap.sh"
+# ⚠️ 不给 shellcheck 指路：third_party/ 是上游镜像，不进 shellcheck 射程。
+# ⚠️ 落点是 third_party/ 而不是 vendor/：Go ≥1.14 见到**模块根**下有 vendor/ 就默认切
+#    vendor 模式 ⇒ 缺 vendor/modules.txt ⇒ go build 报 "inconsistent vendoring"（实测现红）。
+. "${REPO_ROOT}/third_party/shellkit/lib/bootstrap.sh"
 export SHELLKIT_LANG="${SHELLKIT_LANG:-zh_CN}" # 库内消息走中文，与生态输出一致
 
 # shellcheck source=scripts/fnos-env.sh
