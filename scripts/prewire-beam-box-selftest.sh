@@ -21,7 +21,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREWIRE="$SCRIPT_DIR/../fnos/cmd/prewire_beam_box"
 
 fails=0
-note_fail() { echo "  ✗ $1"; fails=$((fails + 1)); }
+note_fail() {
+  echo "  ✗ $1"
+  fails=$((fails + 1))
+}
 note_ok() { echo "  ✓ $1"; }
 
 TMP="$(mktemp -d)"
@@ -31,7 +34,7 @@ MOCK_PID=""
 trap 'rc=$?; [ -n "$MOCK_PID" ] && kill "$MOCK_PID" 2>/dev/null; rm -rf "$TMP"; if [ "$rc" -ne 0 ]; then exit $rc; fi; if [ "${OK:-0}" != 1 ]; then exit 1; fi; exit 0' EXIT
 
 # ── 假 Box + 假 p2pcweb（同一 handler，两个端口）─────────────────────────
-cat > "$TMP/mock.py" <<'PYEOF'
+cat >"$TMP/mock.py" <<'PYEOF'
 import json, os, sys, threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -132,29 +135,29 @@ MOCK_PID=$!
 #   4s 在本机够、在 CI 上偶发不够 ⇒ 表现为「自测自身失效」的**假红**）
 ready=0
 for _ in $(seq 1 60); do
-    if curl -s -m 1 "http://127.0.0.1:${BOX_PORT}/ping" 2>/dev/null | grep -q pong; then
-        ready=1
-        break
-    fi
-    sleep 0.2
+  if curl -s -m 1 "http://127.0.0.1:${BOX_PORT}/ping" 2>/dev/null | grep -q pong; then
+    ready=1
+    break
+  fi
+  sleep 0.2
 done
 if [ "$ready" != "1" ]; then
-    echo "✗ 假 Box 未就绪——自测自身失效（mock 日志：）"
-    tail -20 "$TMP/mock.log" 2>/dev/null | sed 's/^/    /'
-    exit 1
+  echo "✗ 假 Box 未就绪——自测自身失效（mock 日志：）"
+  tail -20 "$TMP/mock.log" 2>/dev/null | sed 's/^/    /'
+  exit 1
 fi
 
 DATA="$TMP/data"
 mkdir -p "$DATA"
-printf 'BEAMTOKEN123' > "$DATA/.p2pcweb_token"
+printf 'BEAMTOKEN123' >"$DATA/.p2pcweb_token"
 
 run_prewire() { # <脚本路径> → 退出码
-    PB_SERVER_PORT="$BOX_PORT" \
+  PB_SERVER_PORT="$BOX_PORT" \
     PB_P2PCWEB_PORT="$BEAM_PORT" \
     PB_DATA_PATH="$DATA" \
     PB_ADMIN_PASSWORD=admin123 \
     PB_PREWIRE_WAIT_MAX="${PB_PREWIRE_WAIT_MAX:-30}" \
-        bash "$1" >/dev/null 2>&1
+    bash "$1" >/dev/null 2>&1
 }
 
 state_get() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$STATE" "$1" 2>/dev/null; }
@@ -166,23 +169,23 @@ CREATED1=$(state_get created)
 SCOPES=$(state_get scopes)
 CFG=$(state_get config)
 if [ "$CREATED1" = "1" ]; then
-    note_ok "首次执行建了 1 把 Key"
+  note_ok "首次执行建了 1 把 Key"
 else
-    note_fail "首次执行建了 ${CREATED1:-0} 把 Key（期望 1）"
+  note_fail "首次执行建了 ${CREATED1:-0} 把 Key（期望 1）"
 fi
 if [ "$SCOPES" = "['admin', 'user', 'share']" ]; then
-    note_ok "scope 精确为 admin/user/share"
+  note_ok "scope 精确为 admin/user/share"
 else
-    note_fail "scope 不是 admin/user/share（实得：${SCOPES:-无}）"
+  note_fail "scope 不是 admin/user/share（实得：${SCOPES:-无}）"
 fi
 case "$CFG" in
-    *server_url*box_api_key*) note_ok "配置同时含 server_url 与 box_api_key" ;;
-    *) note_fail "配置缺字段：${CFG:-无}" ;;
+  *server_url*box_api_key*) note_ok "配置同时含 server_url 与 box_api_key" ;;
+  *) note_fail "配置缺字段：${CFG:-无}" ;;
 esac
 if [ -r "$DATA/.beam_box_api_key" ]; then
-    note_ok "Key 明文已缓存到数据卷"
+  note_ok "Key 明文已缓存到数据卷"
 else
-    note_fail "Key 明文未落缓存（下次启动会重建 ⇒ Key 列表膨胀）"
+  note_fail "Key 明文未落缓存（下次启动会重建 ⇒ Key 列表膨胀）"
 fi
 
 # ── 判据 ②：二次执行不得再建 Key（幂等）────────────────────────────────
@@ -190,17 +193,17 @@ echo "── 判据 ②：二次执行（幂等，不得再建 Key）"
 run_prewire "$PREWIRE"
 CREATED2=$(state_get created)
 if [ "$CREATED2" = "1" ]; then
-    note_ok "二次执行未再建 Key（创建计数仍 1）"
+  note_ok "二次执行未再建 Key（创建计数仍 1）"
 else
-    note_fail "二次执行又建了 Key（创建计数 ${CREATED2}）⇒ 每次启动都多一把"
+  note_fail "二次执行又建了 Key（创建计数 ${CREATED2}）⇒ 每次启动都多一把"
 fi
 
 # ── 判据 ③：不得冲掉用户已配的 registry（只发非空字段）──────────────────
 echo "── 判据 ③：配置里不得出现空 registry（不得冲掉用户已配项）"
 if printf '%s' "${CFG:-}" | grep -q '"registry"'; then
-    note_fail "配置里带 registry（应只发 server_url + box_api_key）"
+  note_fail "配置里带 registry（应只发 server_url + box_api_key）"
 else
-    note_ok "配置只发 server_url + box_api_key"
+  note_ok "配置只发 server_url + box_api_key"
 fi
 
 # ── 判据 ④：令牌文件晚出现 ⇒ 预接线仍须等到就绪后完成 ──────────────────
@@ -209,14 +212,17 @@ fi
 #   ⇒ 否则会**偶发**跳过 ⇒ 表现为「装完还是得手填」，且极难复现。
 echo "── 判据 ④：等待就绪（令牌文件晚出现）"
 rm -f "$DATA/.p2pcweb_token"
-( sleep 3; printf 'BEAMTOKEN123' > "$DATA/.p2pcweb_token" ) &
+(
+  sleep 3
+  printf 'BEAMTOKEN123' >"$DATA/.p2pcweb_token"
+) &
 DELAY_PID=$!
 PB_PREWIRE_WAIT_MAX=20 run_prewire "$PREWIRE"
 wait "$DELAY_PID" 2>/dev/null
 CFG4=$(state_get config)
 case "$CFG4" in
-    *box_api_key*) note_ok "令牌晚到也能等到就绪并完成预置" ;;
-    *) note_fail "令牌晚到时未完成预置（等待逻辑失效）" ;;
+  *box_api_key*) note_ok "令牌晚到也能等到就绪并完成预置" ;;
+  *) note_fail "令牌晚到时未完成预置（等待逻辑失效）" ;;
 esac
 
 # ── 判据 ⑤：缓存的 Key 失效 ⇒ 自愈重建（**后续**启动仍能跑）────────────
@@ -228,9 +234,9 @@ curl -s -m 5 -X POST "http://127.0.0.1:${BOX_PORT}/__invalidate" >/dev/null 2>&1
 run_prewire "$PREWIRE"
 AFTER5=$(state_get created)
 if [ "${AFTER5:-0}" -gt "${BEFORE5:-0}" ]; then
-    note_ok "缓存 Key 失效后重建了新 Key（${BEFORE5}→${AFTER5}）⇒ 自愈在后续启动仍生效"
+  note_ok "缓存 Key 失效后重建了新 Key（${BEFORE5}→${AFTER5}）⇒ 自愈在后续启动仍生效"
 else
-    note_fail "缓存 Key 失效后没有重建（创建计数 ${BEFORE5}→${AFTER5}）⇒ 自愈只在第一次生效"
+  note_fail "缓存 Key 失效后没有重建（创建计数 ${BEFORE5}→${AFTER5}）⇒ 自愈只在第一次生效"
 fi
 
 # ── 负对照 A：改坏「缓存有效则复用」⇒ 判据 ② 必须红 ───────────────────
@@ -239,29 +245,29 @@ BAD="$TMP/prewire-bad.sh"
 # 只把校验分支的匹配值改掉 ⇒ 走「已失效 ⇒ 清空 ⇒ 重建」分支 ⇒ 每次都建新 Key。
 # ⚠️ **只能改这一处**：若同时删掉「清空 cached_key」，变异会互相抵消 ⇒ 变异无效。
 # shellcheck disable=SC2016  # 单引号里的 $code 是**要匹配的字面量**，不可展开
-sed 's|^    case "\$code" in$|    case "forced" in|' "$PREWIRE" > "$BAD"
+sed 's|^    case "\$code" in$|    case "forced" in|' "$PREWIRE" >"$BAD"
 rm -f "$DATA/.beam_box_api_key"
 run_prewire "$BAD"
 BAD_FIRST=$(state_get created)
 run_prewire "$BAD"
 BAD_SECOND=$(state_get created)
 if [ "${BAD_SECOND:-0}" -gt "${BAD_FIRST:-0}" ]; then
-    note_ok "坏副本每次都建 Key（${BAD_FIRST}→${BAD_SECOND}）⇒ 判据 ② 会红（有牙齿）"
+  note_ok "坏副本每次都建 Key（${BAD_FIRST}→${BAD_SECOND}）⇒ 判据 ② 会红（有牙齿）"
 else
-    note_fail "坏副本未体现「不复用」（${BAD_FIRST}→${BAD_SECOND}）⇒ 变异无效，判据 ② 无牙齿"
+  note_fail "坏副本未体现「不复用」（${BAD_FIRST}→${BAD_SECOND}）⇒ 变异无效，判据 ② 无牙齿"
 fi
 
 # ── 负对照 B：改窄 scope ⇒ 判据 ① 必须红 ───────────────────────────────
 echo "── 负对照 B：改窄 scope（判据 ① 必须红）"
 BAD2="$TMP/prewire-bad2.sh"
-sed "s|^SCOPES_JSON=.*|SCOPES_JSON='[\"share\"]'|" "$PREWIRE" > "$BAD2"
+sed "s|^SCOPES_JSON=.*|SCOPES_JSON='[\"share\"]'|" "$PREWIRE" >"$BAD2"
 rm -f "$DATA/.beam_box_api_key"
 run_prewire "$BAD2"
 SCOPES2=$(state_get scopes)
 if [ "$SCOPES2" = "['share']" ]; then
-    note_ok "坏副本确实改窄了 scope（判据 ① 能抓住它）"
+  note_ok "坏副本确实改窄了 scope（判据 ① 能抓住它）"
 else
-    note_fail "坏副本未改窄 scope（${SCOPES2:-无}）⇒ 变异无效"
+  note_fail "坏副本未改窄 scope（${SCOPES2:-无}）⇒ 变异无效"
 fi
 
 # ── 负对照 C：删掉「失效就清空 cached_key」⇒ 判据 ⑤ 必须红 ─────────────
@@ -269,19 +275,19 @@ fi
 #   ⇒ 自愈失效 ⇒ 判据 ⑤ 必须能抓住它。
 echo "── 负对照 C：失效时不丢弃旧 Key（判据 ⑤ 必须红）"
 BAD3="$TMP/prewire-bad3.sh"
-sed '/^[[:space:]]*cached_key=""$/d' "$PREWIRE" > "$BAD3"
+sed '/^[[:space:]]*cached_key=""$/d' "$PREWIRE" >"$BAD3"
 if grep -q 'cached_key=""' "$BAD3"; then
-    note_fail "负对照变异未生效（脚本结构变了 ⇒ 判据 ⑤ 可能已失效）"
+  note_fail "负对照变异未生效（脚本结构变了 ⇒ 判据 ⑤ 可能已失效）"
 else
-    curl -s -m 5 -X POST "http://127.0.0.1:${BOX_PORT}/__invalidate" >/dev/null 2>&1
-    BEFORE_C=$(state_get created)
-    run_prewire "$BAD3"
-    AFTER_C=$(state_get created)
-    if [ "${AFTER_C:-0}" -eq "${BEFORE_C:-0}" ]; then
-        note_ok "坏副本在 Key 失效时没有重建（${BEFORE_C}→${AFTER_C}）⇒ 判据 ⑤ 会红（有牙齿）"
-    else
-        note_fail "坏副本仍重建了 Key（${BEFORE_C}→${AFTER_C}）⇒ 变异无效，判据 ⑤ 无牙齿"
-    fi
+  curl -s -m 5 -X POST "http://127.0.0.1:${BOX_PORT}/__invalidate" >/dev/null 2>&1
+  BEFORE_C=$(state_get created)
+  run_prewire "$BAD3"
+  AFTER_C=$(state_get created)
+  if [ "${AFTER_C:-0}" -eq "${BEFORE_C:-0}" ]; then
+    note_ok "坏副本在 Key 失效时没有重建（${BEFORE_C}→${AFTER_C}）⇒ 判据 ⑤ 会红（有牙齿）"
+  else
+    note_fail "坏副本仍重建了 Key（${BEFORE_C}→${AFTER_C}）⇒ 变异无效，判据 ⑤ 无牙齿"
+  fi
 fi
 
 # ── 判据 ⑥：登录 401 ⇒ 提示必须点名「.env 口令已过期」─────────────────
@@ -292,30 +298,30 @@ echo "── 判据 ⑥：登录 401 ⇒ 提示点名 .env 口令已过期"
 rm -f "$DATA/.beam_box_api_key"
 curl -s -m 5 -X POST "http://127.0.0.1:${BOX_PORT}/__invalidate" >/dev/null 2>&1
 OUT6="$(PB_SERVER_PORT="$BOX_PORT" PB_P2PCWEB_PORT="$BEAM_PORT" PB_DATA_PATH="$DATA" \
-    PB_ADMIN_PASSWORD=wrong-pass PB_PREWIRE_WAIT_MAX=10 bash "$PREWIRE" 2>&1)"
+  PB_ADMIN_PASSWORD=wrong-pass PB_PREWIRE_WAIT_MAX=10 bash "$PREWIRE" 2>&1)"
 if printf '%s' "$OUT6" | grep -q '口令已过期'; then
-    note_ok "登录失败提示点名「.env 口令已过期」"
+  note_ok "登录失败提示点名「.env 口令已过期」"
 else
-    note_fail "登录失败提示未点名 .env 口令已过期（实得：$(printf '%s' "$OUT6" | grep '登录失败' | head -1)）"
+  note_fail "登录失败提示未点名 .env 口令已过期（实得：$(printf '%s' "$OUT6" | grep '登录失败' | head -1)）"
 fi
 
 # ── 负对照 D：提示退回旧文案 ⇒ 判据 ⑥ 必须红 ──────────────────────────
 echo "── 负对照 D：提示退回旧文案（判据 ⑥ 必须红）"
 BAD4="$TMP/prewire-bad4.sh"
-sed 's|⇒ .env 口令已过期（PB_ADMIN_PASSWORD 与库中口令不符）||' "$PREWIRE" > "$BAD4"
+sed 's|⇒ .env 口令已过期（PB_ADMIN_PASSWORD 与库中口令不符）||' "$PREWIRE" >"$BAD4"
 rm -f "$DATA/.beam_box_api_key"
 curl -s -m 5 -X POST "http://127.0.0.1:${BOX_PORT}/__invalidate" >/dev/null 2>&1
 OUTD="$(PB_SERVER_PORT="$BOX_PORT" PB_P2PCWEB_PORT="$BEAM_PORT" PB_DATA_PATH="$DATA" \
-    PB_ADMIN_PASSWORD=wrong-pass PB_PREWIRE_WAIT_MAX=10 bash "$BAD4" 2>&1)"
+  PB_ADMIN_PASSWORD=wrong-pass PB_PREWIRE_WAIT_MAX=10 bash "$BAD4" 2>&1)"
 if printf '%s' "$OUTD" | grep -q '口令已过期'; then
-    note_fail "坏副本仍出现新文案 ⇒ 变异无效，判据 ⑥ 无牙齿"
+  note_fail "坏副本仍出现新文案 ⇒ 变异无效，判据 ⑥ 无牙齿"
 else
-    note_ok "坏副本退回旧文案（判据 ⑥ 能抓住它）"
+  note_ok "坏副本退回旧文案（判据 ⑥ 能抓住它）"
 fi
 if [ "$fails" -gt 0 ]; then
-    echo
-    echo "✗ $fails 条判据失效"
-    exit 1
+  echo
+  echo "✗ $fails 条判据失效"
+  exit 1
 fi
 echo
 echo "✓ prewire-beam-box.sh 的判据全部有效"

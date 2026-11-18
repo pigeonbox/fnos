@@ -25,11 +25,21 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT="$ROOT/scripts/upgrade-inplace.sh"
 
-PASS=0; FAIL=0
-ok()  { PASS=$((PASS+1)); echo "  ✓ $1"; }
-bad() { FAIL=$((FAIL+1)); echo "  ✗ $1${2:+  [$2]}"; }
+PASS=0
+FAIL=0
+ok() {
+  PASS=$((PASS + 1))
+  echo "  ✓ $1"
+}
+bad() {
+  FAIL=$((FAIL + 1))
+  echo "  ✗ $1${2:+  [$2]}"
+}
 
-[ -f "$SCRIPT" ] || { echo "找不到 $SCRIPT"; exit 1; }
+[ -f "$SCRIPT" ] || {
+  echo "找不到 $SCRIPT"
+  exit 1
+}
 
 WORK="$(mktemp -d)"
 OK=0
@@ -40,22 +50,22 @@ trap 'rc=$?; rm -rf "$WORK"; if [ "$rc" -ne 0 ]; then exit $rc; fi; if [ "${OK:-
 build_fake_fpk() {
   local out="$1" src="$WORK/fpkroot"
   mkdir -p "$src/cmd" "$src/wizard" "$src/config" \
-           "$src/payload/bin" "$src/payload/www" "$src/payload/ui" \
-           "$src/payload/config" "$src/payload/configs"
-  printf '#!/bin/bash\n# NEW MAIN\n'            > "$src/cmd/main"
-  printf '#!/bin/bash\n# NEW PREWIRE\n'        > "$src/cmd/prewire_beam_box"
-  printf '#!/bin/bash\n# NEW CONFIG_CALLBACK\n' > "$src/cmd/config_callback"
+    "$src/payload/bin" "$src/payload/www" "$src/payload/ui" \
+    "$src/payload/config" "$src/payload/configs"
+  printf '#!/bin/bash\n# NEW MAIN\n' >"$src/cmd/main"
+  printf '#!/bin/bash\n# NEW PREWIRE\n' >"$src/cmd/prewire_beam_box"
+  printf '#!/bin/bash\n# NEW CONFIG_CALLBACK\n' >"$src/cmd/config_callback"
   chmod 755 "$src/cmd"/*
-  printf 'version               = 9.9.9\n'      > "$src/manifest"
-  printf 'wizard\n'                            > "$src/wizard/config"
-  printf 'priv\n'                              > "$src/config/privilege"
-  printf 'res\n'                               > "$src/config/resource"
-  printf 'newbin\n'                            > "$src/payload/bin/pigeonbox-linux-amd64"
-  printf '<html>new</html>\n'                  > "$src/payload/www/index.html"
-  printf 'ui\n'                                > "$src/payload/ui/config"
-  printf 'priv\n'                              > "$src/payload/config/privilege"
-  printf 'res\n'                               > "$src/payload/config/resource"
-  printf 'yaml\n'                              > "$src/payload/configs/config.yaml"
+  printf 'version               = 9.9.9\n' >"$src/manifest"
+  printf 'wizard\n' >"$src/wizard/config"
+  printf 'priv\n' >"$src/config/privilege"
+  printf 'res\n' >"$src/config/resource"
+  printf 'newbin\n' >"$src/payload/bin/pigeonbox-linux-amd64"
+  printf '<html>new</html>\n' >"$src/payload/www/index.html"
+  printf 'ui\n' >"$src/payload/ui/config"
+  printf 'priv\n' >"$src/payload/config/privilege"
+  printf 'res\n' >"$src/payload/config/resource"
+  printf 'yaml\n' >"$src/payload/configs/config.yaml"
   tar czf "$WORK/app.tgz" -C "$src/payload" .
   cp "$WORK/app.tgz" "$src/app.tgz"
   tar czf "$out" -C "$src" .
@@ -65,26 +75,26 @@ build_fake_fpk() {
 build_fake_app() {
   local app="$1"
   mkdir -p "$app/cmd" "$app/config" "$app/wizard" \
-           "$app/target/config" "$app/target/configs" \
-           "$app/target/www" "$app/target/bin" "$app/target/ui"
-  printf '#!/bin/bash\n# OLD MAIN\n'            > "$app/cmd/main"
-  printf '#!/bin/bash\n# OLD CONFIG_CALLBACK\n' > "$app/cmd/config_callback"
+    "$app/target/config" "$app/target/configs" \
+    "$app/target/www" "$app/target/bin" "$app/target/ui"
+  printf '#!/bin/bash\n# OLD MAIN\n' >"$app/cmd/main"
+  printf '#!/bin/bash\n# OLD CONFIG_CALLBACK\n' >"$app/cmd/config_callback"
   chmod 755 "$app/cmd"/*
-  printf 'version               = 1.1.1\n' > "$app/manifest"
-  printf 'keep\n'               > "$app/target/config/app.conf"
-  printf 'keep\n'               > "$app/target/configs/config.yaml"
-  printf 'OLD HTML\n'           > "$app/target/www/index.html"
-  printf 'oldbin\n'             > "$app/target/bin/pigeonbox-linux-amd64"
-  printf 'panelpriv\n'          > "$app/config/privilege"
+  printf 'version               = 1.1.1\n' >"$app/manifest"
+  printf 'keep\n' >"$app/target/config/app.conf"
+  printf 'keep\n' >"$app/target/configs/config.yaml"
+  printf 'OLD HTML\n' >"$app/target/www/index.html"
+  printf 'oldbin\n' >"$app/target/bin/pigeonbox-linux-amd64"
+  printf 'panelpriv\n' >"$app/config/privilege"
 }
 
 # 沙箱跑真实升级脚本（不碰真机：不停应用/不杀进程/不启动）
 run_sandbox() { # <脚本> <应用根> ; 打印 "<退出码>|<输出>"
   local script="$1" app="$2" out rc
   out="$(PB_APP_ROOT="$app" PB_UPGRADE_TARGET="$app/target" \
-        PB_UPGRADE_SANDBOX=1 PB_UPGRADE_UNPACK="$WORK/unpack" \
-        PB_PKG_USER="$(id -un)" PB_PKG_GROUP="$(id -gn)" \
-        bash "$script" "$WORK/pigeonbox.fpk" 2>&1)"
+    PB_UPGRADE_SANDBOX=1 PB_UPGRADE_UNPACK="$WORK/unpack" \
+    PB_PKG_USER="$(id -un)" PB_PKG_GROUP="$(id -gn)" \
+    bash "$script" "$WORK/pigeonbox.fpk" 2>&1)"
   rc=$?
   printf '%s|%s' "$rc" "$out"
 }
@@ -95,7 +105,8 @@ build_fake_app "$WORK/app"
 
 echo "── 沙箱跑真实升级脚本"
 RES="$(run_sandbox "$SCRIPT" "$WORK/app")"
-RC="${RES%%|*}"; OUT="${RES#*|}"
+RC="${RES%%|*}"
+OUT="${RES#*|}"
 printf '%s\n' "$OUT" | sed 's/^/    /'
 if [ "$RC" != "0" ]; then
   bad "沙箱跑升级脚本失败" "退出码=$RC"
@@ -134,7 +145,7 @@ fi
 echo "── C5 负对照：把 cmd/ 替换段变异掉 ⇒ 必须判红"
 MUT="$WORK/upgrade-inplace.mutated.sh"
 # shellcheck disable=SC2016  # 单引号是故意的：sed 模式里 $UNPACK 必须保持字面量
-sed 's|if \[ -d "$UNPACK/cmd" \]; then|if [ -d "$UNPACK/cmd_DISABLED" ]; then|' "$SCRIPT" > "$MUT"
+sed 's|if \[ -d "$UNPACK/cmd" \]; then|if [ -d "$UNPACK/cmd_DISABLED" ]; then|' "$SCRIPT" >"$MUT"
 if diff -q "$SCRIPT" "$MUT" >/dev/null 2>&1; then
   bad "C5 变异未生效" "没能在脚本里定位 cmd/ 替换段（脚本结构变了？）"
 else

@@ -23,11 +23,21 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT="$ROOT/scripts/upgrade-inplace.sh"
 
-PASS=0; FAIL=0
-ok()  { PASS=$((PASS+1)); echo "  ✓ $1"; }
-bad() { FAIL=$((FAIL+1)); echo "  ✗ $1${2:+  [$2]}"; }
+PASS=0
+FAIL=0
+ok() {
+  PASS=$((PASS + 1))
+  echo "  ✓ $1"
+}
+bad() {
+  FAIL=$((FAIL + 1))
+  echo "  ✗ $1${2:+  [$2]}"
+}
 
-[ -f "$SCRIPT" ] || { echo "找不到 $SCRIPT"; exit 1; }
+[ -f "$SCRIPT" ] || {
+  echo "找不到 $SCRIPT"
+  exit 1
+}
 
 WORK="$(mktemp -d)"
 OK=0
@@ -37,14 +47,14 @@ trap 'rc=$?; rm -rf "$WORK"; if [ "$rc" -ne 0 ]; then exit $rc; fi; if [ "${OK:-
 # 假的应用目录(脚本 [1/6] 会 cp -a 它)与假 fpk
 FAKE_T="$WORK/target"
 mkdir -p "$FAKE_T/config" "$FAKE_T/configs"
-echo "keep" > "$FAKE_T/config/app.conf"
-echo "keep" > "$FAKE_T/configs/config.yaml"
-: > "$WORK/pigeonbox.fpk"
+echo "keep" >"$FAKE_T/config/app.conf"
+echo "keep" >"$FAKE_T/configs/config.yaml"
+: >"$WORK/pigeonbox.fpk"
 
 run_dry() { # <脚本> ; 打印 "<退出码>|<输出>"
   local out rc
   out="$(PB_UPGRADE_TARGET="$FAKE_T" PB_UPGRADE_DRYRUN=1 \
-        bash "$1" "$WORK/pigeonbox.fpk" 2>&1)"
+    bash "$1" "$WORK/pigeonbox.fpk" 2>&1)"
   rc=$?
   printf '%s|%s' "$rc" "$out"
 }
@@ -79,8 +89,8 @@ fi
 echo "── C4 负对照：去掉 || true（还原缺陷态）必须变红"
 MUT="$WORK/upgrade-inplace.mutated.sh"
 sed -e '/^PBGVAR_PID=/ s/ || true)"/)"/' \
-    -e '/^PBGVAR_RAW=/ s/ || true)"/)"/' \
-    "$SCRIPT" > "$MUT"
+  -e '/^PBGVAR_RAW=/ s/ || true)"/)"/' \
+  "$SCRIPT" >"$MUT"
 if diff -q "$SCRIPT" "$MUT" >/dev/null 2>&1; then
   bad "C4 变异未生效" "没能在脚本里定位那两行（脚本结构变了？）"
 else

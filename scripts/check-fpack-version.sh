@@ -20,12 +20,22 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT" || exit 1
 
-PASS=0; FAIL=0
-ok()  { PASS=$((PASS+1)); echo "  ✓ $1"; }
-bad() { FAIL=$((FAIL+1)); echo "  ✗ $1${2:+  [$2]}"; }
+PASS=0
+FAIL=0
+ok() {
+  PASS=$((PASS + 1))
+  echo "  ✓ $1"
+}
+bad() {
+  FAIL=$((FAIL + 1))
+  echo "  ✗ $1${2:+  [$2]}"
+}
 
 VERSION="$(cat VERSION 2>/dev/null || true)"
-[ -n "$VERSION" ] || { echo "找不到 VERSION"; exit 1; }
+[ -n "$VERSION" ] || {
+  echo "找不到 VERSION"
+  exit 1
+}
 # 当前 HEAD 的短哈希 =「产物是不是当次构建」的判据（见 stamp_commit_of 的口径说明）
 HEAD_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || true)"
 
@@ -47,16 +57,16 @@ trap 'rc=$?; rm -rf "$WORK"; if [ "$rc" -ne 0 ]; then exit $rc; fi; if [ "${OK:-
 #   陈旧产物是从旧 commit 构建的 ⇒ 哈希不等 ⇒ 变红 ✓；
 #   而「包版本号」由 VERSION 文件与前端 version.txt 另行对账（V3）。
 stamp_commit_of() { # <二进制>
-  go version -m "$1" 2>/dev/null \
-    | sed -n 's/.*version\.BuildCommit=\([^ '"'"']*\).*/\1/p' \
-    | head -1
+  go version -m "$1" 2>/dev/null |
+    sed -n 's/.*version\.BuildCommit=\([^ '"'"']*\).*/\1/p' |
+    head -1
 }
 
 # 二进制的内嵌版本串（非空即可 ⇒ ldflags 生效）
 stamp_version_of() { # <二进制>
-  go version -m "$1" 2>/dev/null \
-    | sed -n 's/.*version\.Version=\([^ '"'"']*\).*/\1/p' \
-    | head -1
+  go version -m "$1" 2>/dev/null |
+    sed -n 's/.*version\.Version=\([^ '"'"']*\).*/\1/p' |
+    head -1
 }
 
 # 构建 commit 是否 == 当前 HEAD（防陈旧产物）
@@ -86,7 +96,7 @@ done
 echo "── V3 前端版本戳（打包目录）必须 == web/package.json 的 version"
 PKGV="$(node -p "require('./web/package.json').version" 2>/dev/null || echo "")"
 if [ -f "fnos/app/www/version.txt" ]; then
-  WEBV="$(tr -d ' \t\r\n' < "fnos/app/www/version.txt")"
+  WEBV="$(tr -d ' \t\r\n' <"fnos/app/www/version.txt")"
   if [ -z "$PKGV" ] || [ "$WEBV" = "$PKGV" ]; then
     ok "V3 打包目录前端版本戳 = ${WEBV}"
   else
@@ -101,10 +111,10 @@ FPK="fnos/pigeonbox.fpk"
 if [ ! -f "$FPK" ]; then
   ok "V2 尚无 fpk（跳过；make fpack 产出后再验）"
 else
-  ( cd "$WORK" && tar xzf "$ROOT/$FPK" ) 2>/dev/null \
-    || { bad "V2 fpk 解不开" "$FPK"; }
+  (cd "$WORK" && tar xzf "$ROOT/$FPK") 2>/dev/null ||
+    { bad "V2 fpk 解不开" "$FPK"; }
   if [ -f "$WORK/app.tgz" ]; then
-    ( cd "$WORK" && tar xzf app.tgz ) 2>/dev/null || true
+    (cd "$WORK" && tar xzf app.tgz) 2>/dev/null || true
     for arch in amd64 arm64; do
       BIN="bin/pigeonbox-linux-${arch}"
       if [ ! -f "$WORK/$BIN" ]; then
@@ -120,7 +130,7 @@ else
     done
     # 前端版本戳（复用 build-native.sh 的版本自证口径）
     if [ -f "$WORK/www/version.txt" ]; then
-      WEBV="$(tr -d ' \t\r\n' < "$WORK/www/version.txt")"
+      WEBV="$(tr -d ' \t\r\n' <"$WORK/www/version.txt")"
       PKGV="$(node -p "require('./web/package.json').version" 2>/dev/null || echo "")"
       if [ -z "$PKGV" ] || [ "$WEBV" = "$PKGV" ]; then
         ok "V3 fpk 内前端版本戳 = ${WEBV}"

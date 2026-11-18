@@ -19,9 +19,9 @@
 fnos_manifest_field() {
   local file="$1" key="$2"
   [ -f "$file" ] || return 1
-  sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//p" "$file" \
-    | head -1 \
-    | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//'
+  sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//p" "$file" |
+    head -1 |
+    sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//'
 }
 
 # fnos_proc_env_value <pid> <变量名> —— 读运行中进程 environ 里的某个变量。
@@ -33,8 +33,8 @@ fnos_proc_env_value() {
   local pid="$1" key="$2"
   [ -n "$pid" ] || return 1
   [ -r "/proc/${pid}/environ" ] || return 1
-  tr '\0' '\n' < "/proc/${pid}/environ" 2>/dev/null \
-    | grep "^${key}=" | head -1 | cut -d= -f2- || true
+  tr '\0' '\n' <"/proc/${pid}/environ" 2>/dev/null |
+    grep "^${key}=" | head -1 | cut -d= -f2- || true
 }
 
 # fnos_appcenter_cli —— 定位 fnOS 应用中心 CLI(appcenter-cli)。
@@ -62,8 +62,8 @@ fnos_appcenter_cli() {
     return 0
   fi
   for c in /usr/bin/appcenter-cli /usr/local/bin/appcenter-cli /usr/sbin/appcenter-cli \
-           /usr/trim/appcenter/appcenter-cli /usr/trim/bin/appcenter-cli \
-           /opt/fnos/bin/appcenter-cli; do
+    /usr/trim/appcenter/appcenter-cli /usr/trim/bin/appcenter-cli \
+    /opt/fnos/bin/appcenter-cli; do
     if [ -x "${c}" ]; then
       printf '%s\n' "${c}"
       return 0

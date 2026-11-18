@@ -46,8 +46,11 @@ APP_NAME="${PB_APP_NAME:-pigeonbox}"
 SANDBOX="${PB_UPGRADE_SANDBOX:-0}"
 
 FAILURES=0
-ok()   { printf '  ✓ %s\n' "$1"; }
-bad()  { printf '  ✗ %s\n' "$1"; FAILURES=$((FAILURES + 1)); }
+ok() { printf '  ✓ %s\n' "$1"; }
+bad() {
+  printf '  ✗ %s\n' "$1"
+  FAILURES=$((FAILURES + 1))
+}
 skip() { printf '  ⊘ 跳过：%s\n' "$1"; }
 
 # 目标版本为空 ⇒ **只跳过断言 B**(版本对账),断言 A(网关能力)照跑。
@@ -65,14 +68,14 @@ fi
 detect_port() {
   local p=""
   if [ -r "${PKGVAR}/.env" ]; then
-    p="$(sed -n 's/^[[:space:]]*PB_SERVER_PORT[[:space:]]*=[[:space:]]*//p' "${PKGVAR}/.env" 2>/dev/null \
-      | head -1 | tr -d '"' | tr -d '[:space:]')"
+    p="$(sed -n 's/^[[:space:]]*PB_SERVER_PORT[[:space:]]*=[[:space:]]*//p' "${PKGVAR}/.env" 2>/dev/null |
+      head -1 | tr -d '"' | tr -d '[:space:]')"
   fi
   if [ -z "${p}" ]; then
     p="$(fnos_manifest_field "${APP_ROOT}/manifest" service_port 2>/dev/null || true)"
   fi
   case "${p}" in
-    ''|*[!0-9]*) p=12345 ;;
+    '' | *[!0-9]*) p=12345 ;;
   esac
   printf '%s\n' "${p}"
 }

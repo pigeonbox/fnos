@@ -42,21 +42,26 @@ done
 fetch_p2pc() {
   local ref="$1" dest="$2" triple="$3" prefix="$4"
   local asset="${prefix}-${triple}" base="https://github.com/pigeonbox/p2p/releases/download/${ref}"
-  local tmp; tmp="$(mktemp -d)"
+  local tmp
+  tmp="$(mktemp -d)"
   local ok=""
-  if curl -fsSL -m 60 -o "$tmp/checksums.txt" "${base}/p2pc-checksums.txt" 2>/dev/null \
-     && curl -fsSL -m 300 -o "$tmp/${asset}" "${base}/${asset}" 2>/dev/null; then
+  if curl -fsSL -m 60 -o "$tmp/checksums.txt" "${base}/p2pc-checksums.txt" 2>/dev/null &&
+    curl -fsSL -m 300 -o "$tmp/${asset}" "${base}/${asset}" 2>/dev/null; then
     ok=1
   elif command -v gh >/dev/null 2>&1; then
-    gh release download "$ref" -R pigeonbox/p2p -p "${asset}" -O "$tmp/${asset}" --clobber \
-      && gh release download "$ref" -R pigeonbox/p2p -p p2pc-checksums.txt -O "$tmp/checksums.txt" --clobber \
-      && ok=1
+    gh release download "$ref" -R pigeonbox/p2p -p "${asset}" -O "$tmp/${asset}" --clobber &&
+      gh release download "$ref" -R pigeonbox/p2p -p p2pc-checksums.txt -O "$tmp/checksums.txt" --clobber &&
+      ok=1
   fi
   if [ -z "$ok" ]; then
-    echo "✗ ${asset}@${ref} 下载失败(curl/gh 均不可用或失败)"; rm -rf "$tmp"; return 1
+    echo "✗ ${asset}@${ref} 下载失败(curl/gh 均不可用或失败)"
+    rm -rf "$tmp"
+    return 1
   fi
   if ! (cd "$tmp" && grep " ${asset}\$" checksums.txt | shasum -a 256 -c - >/dev/null); then
-    echo "✗ ${asset}@${ref} sha256 校验失败"; rm -rf "$tmp"; return 1
+    echo "✗ ${asset}@${ref} sha256 校验失败"
+    rm -rf "$tmp"
+    return 1
   fi
   install -m 0755 "$tmp/${asset}" "$dest"
   rm -rf "$tmp"
@@ -115,7 +120,7 @@ echo "==> 构建 pb CLI(官方命令行客户端)"
 # 兜底：PB_SERVER_REF 可由构建环境显式指定（本地调试用）。
 PB_SERVER_REF="${PB_SERVER_REF:-}"
 if [ -z "$PB_SERVER_REF" ]; then
-  _pb_ver="$(tr -d ' \r\n' < "$ROOT/VERSION" 2>/dev/null || true)"
+  _pb_ver="$(tr -d ' \r\n' <"$ROOT/VERSION" 2>/dev/null || true)"
   if [ -n "$_pb_ver" ]; then
     PB_SERVER_REF="v${_pb_ver}"
   else
@@ -129,26 +134,26 @@ for arch in amd64 arm64; do
   if [ -z "$PB_SRC" ]; then
     PB_SRC="$(mktemp -d)/server"
     echo "    检出 server ${PB_SERVER_REF} 源码"
-      _pb_try=0
-      while [ "$_pb_try" -lt 10 ]; do
-        _pb_try=$((_pb_try + 1))
-        if git clone -q --depth 1 --branch "$PB_SERVER_REF" \
-             https://github.com/pigeonbox/server.git "$PB_SRC" 2>/dev/null; then
-          break
-        fi
-        echo "    … server ${PB_SERVER_REF} 源码尚未可见（第 ${_pb_try} 次），3s 后重试"
-        sleep 3
-      done
-      if [ ! -d "$PB_SRC/.git" ]; then
-        echo "    ✗ server ${PB_SERVER_REF} 源码检出失败——pb 优雅降级(包内无 pb)"
-        _pb_ok=0
+    _pb_try=0
+    while [ "$_pb_try" -lt 10 ]; do
+      _pb_try=$((_pb_try + 1))
+      if git clone -q --depth 1 --branch "$PB_SERVER_REF" \
+        https://github.com/pigeonbox/server.git "$PB_SRC" 2>/dev/null; then
         break
       fi
+      echo "    … server ${PB_SERVER_REF} 源码尚未可见（第 ${_pb_try} 次），3s 后重试"
+      sleep 3
+    done
+    if [ ! -d "$PB_SRC/.git" ]; then
+      echo "    ✗ server ${PB_SERVER_REF} 源码检出失败——pb 优雅降级(包内无 pb)"
+      _pb_ok=0
+      break
+    fi
   fi
   echo "    GOOS=linux GOARCH=${arch}"
   if ! (cd "$PB_SRC" && CGO_ENABLED=0 GOWORK=off GOOS=linux GOARCH="${arch}" \
-        go build -trimpath -ldflags="-w -s" \
-        -o "$BIN_DIR/pb-linux-${arch}" ./cmd/pb) 2>/dev/null; then
+    go build -trimpath -ldflags="-w -s" \
+    -o "$BIN_DIR/pb-linux-${arch}" ./cmd/pb) 2>/dev/null; then
     echo "    ✗ pb(${arch}) 编译失败——该架构无 pb(其余架构照常)"
     rm -f "$BIN_DIR/pb-linux-${arch}" 2>/dev/null || true
     continue
@@ -179,7 +184,6 @@ else
     npx vite build --outDir "$WWW_DIR" --emptyOutDir
 fi
 
-
 # ── 版本戳自证：二进制内嵌版本必须 == 本次构建的 VERSION（构建即断言）──────
 # 为什么加这条（2026-10-26 审计 P2）：`make fpack` 曾**不重建任何产物** ⇒
 # 工作区里 fnos/app/bin/ 的陈旧二进制会被打进一个「能装」的 fpk（版本幽灵）。
@@ -207,8 +211,11 @@ fi
 # version.txt 并断言 dist 内戳一致,不一致=构建红。运维验收一条
 # curl -s <host>/version.txt 即可验真,永别「页脚是几」猜谜与缓存伪影。
 WEB_VERSION="${APP_VERSION:-$(node -p "require('$ROOT/web/package.json').version")}"
-printf '%s\n' "$WEB_VERSION" > "$WWW_DIR/version.txt"
-grep -rqF "$WEB_VERSION" "$WWW_DIR/assets" 2>/dev/null || { echo "✗ dist 未发现版本戳 $WEB_VERSION(__APP_VERSION__ 注入失效?)"; exit 1; }
+printf '%s\n' "$WEB_VERSION" >"$WWW_DIR/version.txt"
+grep -rqF "$WEB_VERSION" "$WWW_DIR/assets" 2>/dev/null || {
+  echo "✗ dist 未发现版本戳 $WEB_VERSION(__APP_VERSION__ 注入失效?)"
+  exit 1
+}
 echo "    版本自证 ✓ version.txt=$WEB_VERSION 与 dist 戳一致"
 echo "==> 完成"
 ls -lh "$BIN_DIR"

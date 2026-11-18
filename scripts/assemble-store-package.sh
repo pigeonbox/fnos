@@ -43,14 +43,20 @@ if [ -z "$FPK_SRC" ]; then
   gh release download "fnos-v${VERSION}" --repo pigeonbox/pigeonbox \
     --pattern 'pigeonbox.fpk' --output "$FPK_SRC" --clobber
 fi
-[ -f "$FPK_SRC" ] || { log "fpk 不存在: $FPK_SRC"; exit 1; }
+[ -f "$FPK_SRC" ] || {
+  log "fpk 不存在: $FPK_SRC"
+  exit 1
+}
 
 # ---- 2. 从 fpk 自解析 manifest(说明与产物自洽;勿读工作区——可能含未发版改动) ----
 # 注意: fnpack 打包后 manifest 键值会对齐等号(desc   = ...),匹配须容忍空白
 tar -xzf "$FPK_SRC" -C "$WORK" manifest ICON.PNG ICON_256.PNG
 FPK_DESC="$(grep -E '^desc[[:space:]]*=' "$WORK/manifest" | head -1 | sed 's/^desc[[:space:]]*=[[:space:]]*//' || true)"
 FPK_VER="$(grep -E '^version[[:space:]]*=' "$WORK/manifest" | head -1 | sed 's/^version[[:space:]]*=[[:space:]]*//' | tr -d '[:space:]' || true)"
-[ -n "$FPK_DESC" ] || { log "✗ fpk 内 manifest 无 desc 字段"; exit 1; }
+[ -n "$FPK_DESC" ] || {
+  log "✗ fpk 内 manifest 无 desc 字段"
+  exit 1
+}
 # 应用介绍可为富文本(应用中心按 HTML 白名单渲染),README 表格只留纯文本
 FPK_DESC_PLAIN="$(printf '%s' "$FPK_DESC" | sed 's/<[^>]*>//g')"
 if [ "$FPK_VER" != "$VERSION" ]; then
@@ -78,7 +84,7 @@ while IFS='|' read -r src dst; do
     exit 1
   fi
   cp "$SHOTS_DIR/$src.png" "$PKG_DIR/screenshots/$dst.png"
-done <<< "$SHOT_LIST"
+done <<<"$SHOT_LIST"
 
 # 尺寸一致性检查(macOS;不硬失败,提交前人工确认)
 if command -v sips >/dev/null 2>&1; then
@@ -90,7 +96,7 @@ fi
 
 # ---- 4. 提交说明(给飞牛工作人员/审核者看;文件名用 README.md,内容中文) ----
 TODAY="$(date +%Y-%m-%d)"
-cat > "$PKG_DIR/README.md" <<EOF
+cat >"$PKG_DIR/README.md" <<EOF
 # PigeonBox(文件快递柜)上架申请材料
 
 > 组装于 $TODAY,对应应用包版本 v${VERSION}。联系方式请在提交前按工作人员要求补充。
@@ -147,7 +153,7 @@ EOF
 
 # ---- 5. 成包(先删旧包——zip 对已存在的包是追加不是重建,旧条目会残留) ----
 rm -f "$OUT_ROOT/$PKG_NAME.zip"
-( cd "$OUT_ROOT" && zip -rq "$PKG_NAME.zip" "$PKG_NAME" )
+(cd "$OUT_ROOT" && zip -rq "$PKG_NAME.zip" "$PKG_NAME")
 log "完成: $OUT_ROOT/$PKG_NAME.zip"
 log "  目录: $PKG_DIR"
 ls -lh "$PKG_NAME.zip" 2>/dev/null || ls -lh "$OUT_ROOT/$PKG_NAME.zip"

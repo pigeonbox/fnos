@@ -46,7 +46,7 @@ while [ $# -gt 0 ]; do
       DRY_RUN=1
       shift
       ;;
-    -h|--help)
+    -h | --help)
       sed -n '2,30p' "$0"
       OK=1
       exit 0
@@ -90,7 +90,7 @@ fi
 # SQL 走临时文件 => 不必在一堆引号里嵌套 SQL(引号地狱是这类脚本最常见的坏法)。
 run_pg() { # <sql> ; 打印结果行(失败返回非 0)
   local sql="$1"
-  printf '%s\n' "${sql}" > "${SQLFILE}"
+  printf '%s\n' "${sql}" >"${SQLFILE}"
   if command -v su >/dev/null 2>&1 && id postgres >/dev/null 2>&1; then
     su postgres -c "${PSQL_BIN} -d appcenter -tA -f ${SQLFILE}" 2>/dev/null && return 0
   fi

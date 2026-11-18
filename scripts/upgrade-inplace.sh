@@ -68,7 +68,10 @@ PB_UPGRADE_SANDBOX="${PB_UPGRADE_SANDBOX:-0}"
 # 包用户(沙箱里换成本机用户 ⇒ 门禁也能真跑 chown 这一步)
 PB_PKG_USER="${PB_PKG_USER:-pigeonbox}"
 PB_PKG_GROUP="${PB_PKG_GROUP:-pigeonbox}"
-[ -f "$FPK" ] || { echo "✗ 找不到 $FPK"; exit 1; }
+[ -f "$FPK" ] || {
+  echo "✗ 找不到 $FPK"
+  exit 1
+}
 
 echo "[1/6] 备份机器配置(config/configs,解包会覆盖)"
 BK=/tmp/pigeonbox-cfg-backup-$(date +%s)
@@ -94,7 +97,7 @@ cp -a "$T/configs" "$BK/configs"
 PBGVAR_PID="$(pgrep -f 'target/bin/pigeonbox' 2>/dev/null | head -1 || true)"
 PBGVAR_RAW=""
 if [ -n "$PBGVAR_PID" ] && [ -r "/proc/$PBGVAR_PID/environ" ]; then
-  PBGVAR_RAW="$(tr '\0' '\n' < "/proc/$PBGVAR_PID/environ" 2>/dev/null | grep '^TRIM_PKGVAR=' | cut -d= -f2 || true)"
+  PBGVAR_RAW="$(tr '\0' '\n' <"/proc/$PBGVAR_PID/environ" 2>/dev/null | grep '^TRIM_PKGVAR=' | cut -d= -f2 || true)"
 fi
 PKGVAR="${PBGVAR_RAW:-/vol1/@appdata/pigeonbox}"
 
@@ -143,7 +146,10 @@ echo "[3/6] 干净解包(rm -rf www bin ui → 解包,杜绝旧产物残留)"
 UNPACK="${PB_UPGRADE_UNPACK:-/tmp/fpk-unpack}"
 rm -rf "$UNPACK" && mkdir -p "$UNPACK"
 tar xzf "$FPK" -C "$UNPACK"
-[ -f "$UNPACK/app.tgz" ] || { echo "✗ fpk 无 app.tgz"; exit 1; }
+[ -f "$UNPACK/app.tgz" ] || {
+  echo "✗ fpk 无 app.tgz"
+  exit 1
+}
 rm -rf "${T:?}/www" "${T:?}/bin" "${T:?}/ui"
 tar xzf "$UNPACK/app.tgz" -C "$T"
 
@@ -228,7 +234,10 @@ else
         bash "$APP_ROOT/cmd/main" start >/dev/null 2>&1 &
     fi
   fi
-  for _i in $(seq 1 30); do pgrep -f "target/bin/pigeonbox" >/dev/null && break; sleep 1; done
+  for _i in $(seq 1 30); do
+    pgrep -f "target/bin/pigeonbox" >/dev/null && break
+    sleep 1
+  done
   if pgrep -f "target/bin/pigeonbox" >/dev/null; then
     echo "✓ 进程已起"
   else
@@ -250,8 +259,8 @@ if [ "$PB_UPGRADE_SANDBOX" = "1" ]; then
 elif [ -z "$TARGET_VERSION" ]; then
   echo "⚠ 读不到目标版本(manifest 里没有 version 字段)⇒ 跳过注册表版本同步"
 else
-  bash "$SCRIPT_DIR/sync-appcenter-version.sh" --version "$TARGET_VERSION" --app-name "$APP_NAME" \
-    || echo "⚠ 注册表版本同步未成功(见上面的补救命令)—— [6.8/6] 的断言会判红"
+  bash "$SCRIPT_DIR/sync-appcenter-version.sh" --version "$TARGET_VERSION" --app-name "$APP_NAME" ||
+    echo "⚠ 注册表版本同步未成功(见上面的补救命令)—— [6.8/6] 的断言会判红"
 fi
 
 echo "[6.8/6] 升级后断言(网关能力 + 注册表版本)"
