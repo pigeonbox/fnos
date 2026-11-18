@@ -12,7 +12,10 @@
 .vscode/
 
 # Go
-vendor/
+# ⚠️ third_party/shellkit 是 **shellkit 上游镜像**（编译/部署/CI 侧脚本的公共库，
+#    由 hub 侧 scripts/vendor-shellkit.sh 物化）⇒ **入库可检出**，不排除。
+#    落点是 third_party/ 而不是 vendor/：Go ≥1.14 见到**模块根**下有 vendor/ 就默认
+#    切 vendor 模式 ⇒ 缺 vendor/modules.txt ⇒ go build 报 "inconsistent vendoring"。
 
 # 飞牛打包产物
 fnos/*.fpk

@@ -21,9 +21,16 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT" || exit 1
 
-PASS=0; FAIL=0
-ok()  { PASS=$((PASS+1)); echo "  ✓ $1"; }
-bad() { FAIL=$((FAIL+1)); echo "  ✗ $1${2:+  [$2]}"; }
+PASS=0
+FAIL=0
+ok() {
+  PASS=$((PASS + 1))
+  echo "  ✓ $1"
+}
+bad() {
+  FAIL=$((FAIL + 1))
+  echo "  ✗ $1${2:+  [$2]}"
+}
 
 PACK_DIR="$ROOT/fnos"
 BIN_DIR="$PACK_DIR/app/bin"
@@ -66,7 +73,7 @@ if [ "$v1_ok" = "1" ]; then
     if [ "$can_exec" = "1" ]; then
       case "$arch" in
         amd64) [ "$host_arch" = "x86_64" ] && host_match=1 ;;
-        arm64) case "$host_arch" in aarch64|arm64) host_match=1 ;; esac ;;
+        arm64) case "$host_arch" in aarch64 | arm64) host_match=1 ;; esac ;;
       esac
     fi
     if [ "$host_match" = "1" ]; then
@@ -84,7 +91,7 @@ if [ "$v1_ok" = "1" ]; then
       kind="$(file -b "$f" 2>/dev/null || echo unknown)"
       case "$kind" in
         *"ELF"*"x86-64"*) ok "V2 pb-linux-${arch} 架构正确（非本机，静态判定：${kind}）" ;;
-        *"ELF"*"ARM aarch64"*|*"ELF"*"ARM64"*) ok "V2 pb-linux-${arch} 架构正确（非本机，静态判定：${kind}）" ;;
+        *"ELF"*"ARM aarch64"* | *"ELF"*"ARM64"*) ok "V2 pb-linux-${arch} 架构正确（非本机，静态判定：${kind}）" ;;
         *) bad "V2 pb-linux-${arch} 不是预期的 ELF 可执行文件" "$kind" ;;
       esac
     fi
@@ -103,7 +110,10 @@ if [ -f "$FPK" ]; then
     # 兼容两种布局（app/ 前缀 or 无前缀）。
     PB_BIN_DIR=""
     for cand in "$WORK/bin" "$WORK/app/bin"; do
-      if [ -d "$cand" ]; then PB_BIN_DIR="$cand"; break; fi
+      if [ -d "$cand" ]; then
+        PB_BIN_DIR="$cand"
+        break
+      fi
     done
     v3_ok=1
     for arch in amd64 arm64; do

@@ -48,8 +48,11 @@ for arg in "$@"; do
 done
 
 PIN_ERRS=0
-p_ok()  { echo "  ✓ $1"; }
-p_bad() { echo "  ✗ $1${2:+  [$2]}"; PIN_ERRS=$((PIN_ERRS + 1)); }
+p_ok() { echo "  ✓ $1"; }
+p_bad() {
+  echo "  ✗ $1${2:+  [$2]}"
+  PIN_ERRS=$((PIN_ERRS + 1))
+}
 
 # go.mod 里 core 的**直接 require**版本。
 # 口径：只认 require 块（或单行 require）里、且**不带 // indirect** 的那行——
@@ -65,9 +68,9 @@ gomod_core_pin() { # <go.mod 路径>
 
 # web 侧 frontend-core tgz URL 里的钉版（去重输出，一行一个取值）
 web_core_pins() { # <package.json|package-lock.json>
-  grep -oE 'frontend-core/releases/download/v[0-9][0-9A-Za-z.+-]*' "$1" 2>/dev/null \
-    | sed 's|.*/download/||' \
-    | sort -u
+  grep -oE 'frontend-core/releases/download/v[0-9][0-9A-Za-z.+-]*' "$1" 2>/dev/null |
+    sed 's|.*/download/||' |
+    sort -u
 }
 
 # 对账主判据：<目录> 四条全过=0；任一漂移=1（打印逐条 ✓/✗，点名文件与两侧取值）
@@ -76,8 +79,14 @@ pin_check() {
   local core_pin fe_pin gomod_pin pins
 
   PIN_ERRS=0
-  [ -f "$dir/DEPS.env" ] || { p_bad "缺 $dir/DEPS.env" "第二份钉版真相源（trainctl bump 写入）"; return 1; }
-  [ -f "$dir/go.mod" ] || { p_bad "缺 $dir/go.mod" "-"; return 1; }
+  [ -f "$dir/DEPS.env" ] || {
+    p_bad "缺 $dir/DEPS.env" "第二份钉版真相源（trainctl bump 写入）"
+    return 1
+  }
+  [ -f "$dir/go.mod" ] || {
+    p_bad "缺 $dir/go.mod" "-"
+    return 1
+  }
 
   # P1 钉版声明本身要在
   core_pin="$(sed -n 's/^CORE_PIN=//p' "$dir/DEPS.env" | tr -d ' \r' | head -1)"
@@ -147,9 +156,16 @@ if [ "$SELFCHECK" -eq 1 ]; then
   # shellcheck disable=SC2154  # rc 在 trap 体内赋值，shellcheck 看不见
   trap 'rc=$?; rm -rf "$SELF_TMP"; if [ "$rc" -ne 0 ]; then exit $rc; fi; if [ "${OK:-0}" != 1 ]; then exit 1; fi; exit 0' EXIT
 
-  SC_PASS=0; SC_FAIL=0
-  sc_ok()  { SC_PASS=$((SC_PASS + 1)); echo "  ✓ $1"; }
-  sc_bad() { SC_FAIL=$((SC_FAIL + 1)); echo "  ✗ $1${2:+  [$2]}"; }
+  SC_PASS=0
+  SC_FAIL=0
+  sc_ok() {
+    SC_PASS=$((SC_PASS + 1))
+    echo "  ✓ $1"
+  }
+  sc_bad() {
+    SC_FAIL=$((SC_FAIL + 1))
+    echo "  ✗ $1${2:+  [$2]}"
+  }
 
   reset_fixtures() {
     mkdir -p "$SELF_TMP/web"
@@ -159,8 +175,8 @@ if [ "$SELFCHECK" -eq 1 ]; then
 
   # <字面量替换>：awk 按字面量换掉首个命中行（不依赖 sed -i ⇒ macOS/CI 双端一致）
   replace_first() { # <文件> <旧字面量> <新字面量>
-    awk -v o="$2" -v n="$3" 'index($0, o) && !d { sub(o, n); d = 1 } { print }' "$1" >"$1.tmp" \
-      && mv "$1.tmp" "$1"
+    awk -v o="$2" -v n="$3" 'index($0, o) && !d { sub(o, n); d = 1 } { print }' "$1" >"$1.tmp" &&
+      mv "$1.tmp" "$1"
   }
 
   drop_line() { # <文件> <行首前缀>
@@ -169,7 +185,8 @@ if [ "$SELFCHECK" -eq 1 ]; then
 
   expect_red() { # <变异名> <点名词（输出里必须出现）>
     local name="$1" needle="$2" out rc
-    out="$(pin_check "$SELF_TMP" 2>&1)"; rc=$?
+    out="$(pin_check "$SELF_TMP" 2>&1)"
+    rc=$?
     if [ "$rc" -eq 0 ]; then
       # 变量一律显式花括号（${name} 形态）：变量名后紧跟全角标点会让 bash 把全角
       # 字符并进变量名 ⇒ hub 门禁 check-shell-var-boundary.sh 判红（2026-11-13 实证）。

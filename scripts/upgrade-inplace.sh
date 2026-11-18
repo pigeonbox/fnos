@@ -56,10 +56,30 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# ── shellkit v1.0.0 公共库（编译/部署/CI 侧管道：日志/退出码/目录/清理）──
+# third_party/shellkit 是**上游镜像**（由 hub 侧 scripts/vendor-shellkit.sh 物化）⇒ 一个字节都不许手改；
+# 完整性由 hub 侧 scripts/check-shellkit-vendor.sh 逐文件 sha256 对账。
+#
+# ⚠️ 本脚本是**在设备上跑**的（sudo bash scripts/upgrade-inplace.sh <fpk>）⇒
+#    公共库必须跟脚本一起到设备：拷过去时要把 scripts/ 与 third_party/ 一起带上
+#    （或直接在仓内布局里跑）。缺库时立刻说清楚，别让它以「找不到文件」的形式炸。
+if [ ! -r "${REPO_ROOT}/third_party/shellkit/lib/bootstrap.sh" ]; then
+  echo "✗ 找不到 ${REPO_ROOT}/third_party/shellkit/lib/bootstrap.sh —— 换装脚本依赖仓内公共库(shellkit)；拷到设备时须把 scripts/ 与 third_party/ 一起带上" >&2
+  exit 1
+fi
+# ⚠️ 不给 shellcheck 指路：third_party/ 是上游镜像，不进 shellcheck 射程
+#   （否则上游的 style 级告警会把本仓打红；完整性由 hub 侧漂移门禁负责）。
+# ⚠️ 落点是 third_party/ 而不是 vendor/：Go ≥1.14 见到**模块根**下有 vendor/ 就默认切
+#   vendor 模式 ⇒ 缺 vendor/modules.txt ⇒ go build 报 "inconsistent vendoring"（实测现红）。
+. "${REPO_ROOT}/third_party/shellkit/lib/bootstrap.sh"
+export SHELLKIT_LANG="${SHELLKIT_LANG:-zh_CN}" # 库内消息走中文，与生态输出一致
+
 # shellcheck source=scripts/fnos-env.sh
 . "${SCRIPT_DIR}/fnos-env.sh"
 
-FPK="${1:?用法: sudo bash upgrade-inplace.sh <pigeonbox.fpk>}"
+FPK="${1:?用法: sudo bash upgrade-inplace.sh [pigeonbox.fpk]}"
 # 应用目录(默认生产路径;可覆盖 ⇒ 门禁脚本能离线自检而不碰真机)
 APP_ROOT="${PB_APP_ROOT:-/var/apps/pigeonbox}"
 T="${PB_UPGRADE_TARGET:-$APP_ROOT/target}"
@@ -68,11 +88,11 @@ PB_UPGRADE_SANDBOX="${PB_UPGRADE_SANDBOX:-0}"
 # 包用户(沙箱里换成本机用户 ⇒ 门禁也能真跑 chown 这一步)
 PB_PKG_USER="${PB_PKG_USER:-pigeonbox}"
 PB_PKG_GROUP="${PB_PKG_GROUP:-pigeonbox}"
-[ -f "$FPK" ] || { echo "✗ 找不到 $FPK"; exit 1; }
+[ -f "$FPK" ] || die 1 "✗ 找不到 $FPK"
 
-echo "[1/6] 备份机器配置(config/configs,解包会覆盖)"
+log_info "[1/6] 备份机器配置(config/configs,解包会覆盖)"
 BK=/tmp/pigeonbox-cfg-backup-$(date +%s)
-mkdir -p "$BK"
+fs_ensure_dir "$BK"
 cp -a "$T/config" "$BK/config"
 cp -a "$T/configs" "$BK/configs"
 
@@ -94,7 +114,7 @@ cp -a "$T/configs" "$BK/configs"
 PBGVAR_PID="$(pgrep -f 'target/bin/pigeonbox' 2>/dev/null | head -1 || true)"
 PBGVAR_RAW=""
 if [ -n "$PBGVAR_PID" ] && [ -r "/proc/$PBGVAR_PID/environ" ]; then
-  PBGVAR_RAW="$(tr '\0' '\n' < "/proc/$PBGVAR_PID/environ" 2>/dev/null | grep '^TRIM_PKGVAR=' | cut -d= -f2 || true)"
+  PBGVAR_RAW="$(tr '\0' '\n' <"/proc/$PBGVAR_PID/environ" 2>/dev/null | grep '^TRIM_PKGVAR=' | cut -d= -f2 || true)"
 fi
 PKGVAR="${PBGVAR_RAW:-/vol1/@appdata/pigeonbox}"
 
@@ -112,23 +132,23 @@ APPCENTER_CLI="$(fnos_appcenter_cli 2>/dev/null || true)"
 APPDEST="$(fnos_proc_env_value "$PBGVAR_PID" TRIM_APPDEST 2>/dev/null || true)"
 APPNAME="$(fnos_proc_env_value "$PBGVAR_PID" TRIM_APPNAME 2>/dev/null || true)"
 
-echo "[2/6] 停应用(TRIM_PKGVAR=$PKGVAR)"
+log_info "[2/6] 停应用(TRIM_PKGVAR=$PKGVAR)"
 # 干跑:解析出 PKGVAR 后立刻退出,不做任何变更。
 # 用途:门禁脚本要能验证「取不到 PKGVAR 时脚本仍能走到 [2/6]」(见同目录
 # check-upgrade-inplace-pkgvar.sh)。
 if [ "${PB_UPGRADE_DRYRUN:-0}" = "1" ]; then
-  echo "[dryrun] 已解析 PKGVAR=$PKGVAR —— 不停应用/不解包"
+  log_info "[dryrun] 已解析 PKGVAR=$PKGVAR —— 不停应用/不解包"
   exit 0
 fi
 # 沙箱模式:离线门禁只验「替换」,不碰真机进程。
 if [ "$PB_UPGRADE_SANDBOX" != "1" ]; then
   if [ -n "$APPCENTER_CLI" ]; then
     # 框架托管停机:框架知道应用已停 ⇒ 不会在我们换文件的窗口里把它拉起来。
-    echo "  · 框架托管停机: $APPCENTER_CLI stop $APP_NAME"
+    log_info "  · 框架托管停机: $APPCENTER_CLI stop $APP_NAME"
     "$APPCENTER_CLI" stop "$APP_NAME" || true
     sleep 2
   else
-    echo "  · 未找到 appcenter-cli ⇒ 只能直接停生命周期脚本"
+    log_info "  · 未找到 appcenter-cli ⇒ 只能直接停生命周期脚本"
   fi
   # 兜底:直接停生命周期脚本 + pkill(与框架托管并存,幂等)。
   TRIM_PKGVAR="$PKGVAR" bash "$APP_ROOT/cmd/main" stop 2>/dev/null || true
@@ -136,14 +156,15 @@ if [ "$PB_UPGRADE_SANDBOX" != "1" ]; then
   pkill -f "target/bin/pigeonbox" 2>/dev/null || true
   sleep 1
 else
-  echo "[sandbox] 跳过停应用(不碰真机进程)"
+  log_info "[sandbox] 跳过停应用(不碰真机进程)"
 fi
 
-echo "[3/6] 干净解包(rm -rf www bin ui → 解包,杜绝旧产物残留)"
+log_info "[3/6] 干净解包(rm -rf www bin ui → 解包,杜绝旧产物残留)"
 UNPACK="${PB_UPGRADE_UNPACK:-/tmp/fpk-unpack}"
-rm -rf "$UNPACK" && mkdir -p "$UNPACK"
+rm -rf "$UNPACK"
+fs_ensure_dir "$UNPACK"
 tar xzf "$FPK" -C "$UNPACK"
-[ -f "$UNPACK/app.tgz" ] || { echo "✗ fpk 无 app.tgz"; exit 1; }
+[ -f "$UNPACK/app.tgz" ] || die 1 "✗ fpk 无 app.tgz"
 rm -rf "${T:?}/www" "${T:?}/bin" "${T:?}/ui"
 tar xzf "$UNPACK/app.tgz" -C "$T"
 
@@ -152,46 +173,45 @@ tar xzf "$UNPACK/app.tgz" -C "$T"
 #   生命周期 = 静默半升级(见文件头)。cmd/ 干净替换(先 rm -rf 再 cp -a)。
 if [ -d "$UNPACK/cmd" ]; then
   rm -rf "${APP_ROOT:?}/cmd"
-  mkdir -p "${APP_ROOT:?}/cmd"
+  fs_ensure_dir "${APP_ROOT:?}/cmd"
   cp -a "$UNPACK/cmd/." "${APP_ROOT:?}/cmd/"
   chmod 755 "${APP_ROOT:?}/cmd"/*
-  echo "✓ cmd/ 已换($(find "${APP_ROOT}/cmd" -maxdepth 1 -type f | wc -l) 个文件)"
+  log_ok "✓ cmd/ 已换($(find "${APP_ROOT}/cmd" -maxdepth 1 -type f | wc -l) 个文件)"
 else
-  echo "✗ fpk 根无 cmd/ —— 原生 fpk 必须带 cmd/(fnpack native 约定)"
-  exit 1
+  die 1 "✗ fpk 根无 cmd/ —— 原生 fpk 必须带 cmd/(fnpack native 约定)"
 fi
 # manifest:桌面入口/服务端口等元信息随版本走。
 if [ -f "$UNPACK/manifest" ]; then
   cp -a "$UNPACK/manifest" "${APP_ROOT:?}/manifest"
-  echo "✓ manifest 已换(version=$(grep -E '^version' "${APP_ROOT}/manifest" | tr -s ' ' | cut -d' ' -f3))"
+  log_ok "✓ manifest 已换(version=$(grep -E '^version' "${APP_ROOT}/manifest" | tr -s ' ' | cut -d' ' -f3))"
 fi
 # wizard/:fnOS 面板的向导文案(随版本走;不含机器状态,换是安全的)。
 if [ -d "$UNPACK/wizard" ]; then
   rm -rf "${APP_ROOT:?}/wizard"
-  mkdir -p "${APP_ROOT:?}/wizard"
+  fs_ensure_dir "${APP_ROOT:?}/wizard"
   cp -a "$UNPACK/wizard/." "${APP_ROOT:?}/wizard/"
 fi
 # config/(privilege+resource)是 **fnOS 面板配置** ⇒ 保留;与包内不一致时告警。
 if [ -d "$UNPACK/config" ] && [ -d "${APP_ROOT:?}/config" ]; then
   if ! diff -r "$UNPACK/config" "${APP_ROOT}/config" >/dev/null 2>&1; then
-    echo "⚠ 面板 config/ 与包内不一致 —— 保留面板现状(fnOS 面板配置优先)"
+    log_warn "⚠ 面板 config/ 与包内不一致 —— 保留面板现状(fnOS 面板配置优先)"
   fi
 fi
 
-echo "[4/6] 还原机器配置"
+log_info "[4/6] 还原机器配置"
 cp -a "$BK/config/." "$T/config/"
 cp -a "$BK/configs/." "$T/configs/"
 
-echo "[5/6] 属主归位"
+log_info "[5/6] 属主归位"
 chown -R "${PB_PKG_USER}:${PB_PKG_GROUP}" "$T"
 
-echo "[5.5/6] 数据目录属主归位(root 实例曾写花 app.log→框架起不来,2.1.0 真机实锤)"
+log_info "[5.5/6] 数据目录属主归位(root 实例曾写花 app.log→框架起不来,2.1.0 真机实锤)"
 chown -R "${PB_PKG_USER}:${PB_PKG_GROUP}" "$PKGVAR" 2>/dev/null || true
 
-echo "[6/6] 启应用(TRIM_PKGVAR=$PKGVAR,看门狗后台,勿占管道)"
+log_info "[6/6] 启应用(TRIM_PKGVAR=$PKGVAR,看门狗后台,勿占管道)"
 # 沙箱模式:离线门禁不启真机(**也不做尾部断言**,见 [6.8/6])。
 if [ "$PB_UPGRADE_SANDBOX" = "1" ]; then
-  echo "[sandbox] 跳过启动(不碰真机进程)"
+  log_info "[sandbox] 跳过启动(不碰真机进程)"
 else
   if [ -n "$APPCENTER_CLI" ]; then
     # ✅ 框架托管启动(fnOS#200 的正解):框架在拉起生命周期脚本时注入
@@ -199,7 +219,7 @@ else
     #    「原生应用环境」⇒ 统一网关 + SSO 免登录可用。
     #    手工 nohup 起进程拿不到这些变量 ⇒ capabilities 回报
     #    gateway=false/sso=false ⇒ 面板「统一网关免登录」静默失效。
-    echo "  · 框架托管启动: $APPCENTER_CLI start $APP_NAME"
+    log_info "  · 框架托管启动: $APPCENTER_CLI start $APP_NAME"
     "$APPCENTER_CLI" start "$APP_NAME" || true
   else
     # ⚠️ 降级路径:本机没有应用中心 CLI ⇒ 只能手工拉起。
@@ -209,12 +229,12 @@ else
     #    猜错 ⇒ adapter 照样报 gateway=true,但 app.sock 落在网关找不到的地方
     #    ⇒ **假绿**(比原来的假红更坏)。
     #    两者都拿不到 ⇒ 只能裸启动 ⇒ 网关能力必然是关的 ⇒ 由 [6.8/6] 断言喊出来。
-    echo "  · 未找到 appcenter-cli ⇒ 降级为手工拉起"
+    log_info "  · 未找到 appcenter-cli ⇒ 降级为手工拉起"
     if [ -n "$APPDEST" ]; then
-      echo "    · 注入 TRIM_APPDEST=$APPDEST(取自停之前的运行中进程)"
+      log_info "    · 注入 TRIM_APPDEST=$APPDEST(取自停之前的运行中进程)"
     else
-      echo "    ⚠ 拿不到 TRIM_APPDEST(无运行中进程可问)⇒ 统一网关能力必然失效"
-      echo "      补救: 装好应用中心后执行 $APPCENTER_CLI start $APP_NAME"
+      log_warn "    ⚠ 拿不到 TRIM_APPDEST(无运行中进程可问)⇒ 统一网关能力必然失效"
+      log_warn "      补救: 装好应用中心后执行 $APPCENTER_CLI start $APP_NAME"
     fi
     # 必须以应用用户启动:sudo 跑本脚本时直接 start 会拉起 root 实例,占端口+写花
     # 数据目录,fnOS 框架随后「端口被占用」拒启(2026-10-19 真机实锤;对齐框架
@@ -228,12 +248,16 @@ else
         bash "$APP_ROOT/cmd/main" start >/dev/null 2>&1 &
     fi
   fi
-  for _i in $(seq 1 30); do pgrep -f "target/bin/pigeonbox" >/dev/null && break; sleep 1; done
+  # 等进程起来：判据是**进程**（不是端口）——端口可配（PB_SERVER_PORT），
+  # 且框架托管下端口可能由别处代理 ⇒ net_wait_port 的判据不等价 ⇒ 保留手写等待。
+  for _i in $(seq 1 30); do
+    pgrep -f "target/bin/pigeonbox" >/dev/null && break
+    sleep 1
+  done
   if pgrep -f "target/bin/pigeonbox" >/dev/null; then
-    echo "✓ 进程已起"
+    log_ok "✓ 进程已起"
   else
-    echo "✗ 启动失败"
-    exit 1
+    die 1 "✗ 启动失败"
   fi
 fi
 
@@ -241,28 +265,28 @@ fi
 TARGET_VERSION="$(fnos_manifest_field "$APP_ROOT/manifest" version 2>/dev/null || true)"
 TARGET_VERSION="${TARGET_VERSION:-$(fnos_manifest_field "$UNPACK/manifest" version 2>/dev/null || true)}"
 
-echo "[6.5/6] 应用中心注册表版本同步(fnos#201)"
+log_info "[6.5/6] 应用中心注册表版本同步(fnos#201)"
 # 注册表在**宿主 PostgreSQL 15 的 appcenter 库**里,不在应用自己起的 pg18
 # 容器里 ⇒ 换完盘不更新它,面板显示的就是旧版(4.8.6)而实际跑的是新版。
 # 无 PostgreSQL / 非 fnOS 环境 ⇒ 该脚本明确提示并跳过(不静默跳过)。
 if [ "$PB_UPGRADE_SANDBOX" = "1" ]; then
-  echo "[sandbox] 跳过注册表版本同步(不碰宿主 PostgreSQL)"
+  log_info "[sandbox] 跳过注册表版本同步(不碰宿主 PostgreSQL)"
 elif [ -z "$TARGET_VERSION" ]; then
-  echo "⚠ 读不到目标版本(manifest 里没有 version 字段)⇒ 跳过注册表版本同步"
+  log_warn "⚠ 读不到目标版本(manifest 里没有 version 字段)⇒ 跳过注册表版本同步"
 else
-  bash "$SCRIPT_DIR/sync-appcenter-version.sh" --version "$TARGET_VERSION" --app-name "$APP_NAME" \
-    || echo "⚠ 注册表版本同步未成功(见上面的补救命令)—— [6.8/6] 的断言会判红"
+  bash "$SCRIPT_DIR/sync-appcenter-version.sh" --version "$TARGET_VERSION" --app-name "$APP_NAME" ||
+    log_warn "⚠ 注册表版本同步未成功(见上面的补救命令)—— [6.8/6] 的断言会判红"
 fi
 
-echo "[6.8/6] 升级后断言(网关能力 + 注册表版本)"
+log_info "[6.8/6] 升级后断言(网关能力 + 注册表版本)"
 # 两条**有牙齿**的断言,不满足 ⇒ 非 0 退出 + 打印补救命令:
 #   A. /api/fnos/capabilities 的 gateway/sso 必须为 true
 #   B. appcenter-cli list 里的版本必须 == 目标版本
 # 沙箱模式 ⇒ 跳过并说明原因(离线门禁不得被真机断言打断)。
 if [ "$PB_UPGRADE_SANDBOX" = "1" ]; then
-  echo "[sandbox] 跳过升级后断言(沙箱无真机进程/无应用中心/无宿主 PostgreSQL)"
+  log_info "[sandbox] 跳过升级后断言(沙箱无真机进程/无应用中心/无宿主 PostgreSQL)"
 elif [ -z "$TARGET_VERSION" ]; then
-  echo "⚠ 读不到目标版本 ⇒ 跳过注册表版本对账(网关能力断言仍会跑)"
+  log_warn "⚠ 读不到目标版本 ⇒ 跳过注册表版本对账(网关能力断言仍会跑)"
   PB_TARGET_VERSION="" PB_APP_ROOT="$APP_ROOT" PB_PKGVAR="$PKGVAR" \
     PB_APP_NAME="$APP_NAME" PB_UPGRADE_SANDBOX="$PB_UPGRADE_SANDBOX" \
     bash "$SCRIPT_DIR/verify-upgrade-result.sh" || exit 1
@@ -271,4 +295,4 @@ else
     PB_APP_NAME="$APP_NAME" PB_UPGRADE_SANDBOX="$PB_UPGRADE_SANDBOX" \
     bash "$SCRIPT_DIR/verify-upgrade-result.sh" || exit 1
 fi
-echo "── 验真: curl -s http://127.0.0.1:12345/version.txt"
+log_info "── 验真: curl -s http://127.0.0.1:12345/version.txt"

@@ -1,5 +1,9 @@
 .PHONY: build test vet run fpack clean
 
+# ⚠️ 不设 GOFLAGS：shellkit 副本放 third_party/shellkit（不是 vendor/）⇒ 仓根没有
+#    Go 的「依赖 vendor 目录」⇒ go 走默认 module 模式（-mod=readonly 是 Go 1.16+
+#    的默认行为，go.mod 仍不许改）。
+
 # PigeonBox 飞牛(fnOS)应用适配层
 # 独立构建钉 go.mod 正式版本;在本仓目录直接跑会拾取上层 go.work 联编本地 core,
 # 两者皆可——见 README「本地开发」。

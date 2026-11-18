@@ -39,13 +39,29 @@ SCRIPT="$ROOT/scripts/upgrade-inplace.sh"
 VERIFY="$ROOT/scripts/verify-upgrade-result.sh"
 SYNC="$ROOT/scripts/sync-appcenter-version.sh"
 
-PASS=0; FAIL=0
-ok()  { PASS=$((PASS+1)); echo "  ✓ $1"; }
-bad() { FAIL=$((FAIL+1)); echo "  ✗ $1${2:+  [$2]}"; }
+PASS=0
+FAIL=0
+ok() {
+  PASS=$((PASS + 1))
+  echo "  ✓ $1"
+}
+bad() {
+  FAIL=$((FAIL + 1))
+  echo "  ✗ $1${2:+  [$2]}"
+}
 
-[ -f "$SCRIPT" ] || { echo "找不到 $SCRIPT"; exit 1; }
-[ -f "$VERIFY" ] || { echo "找不到 $VERIFY"; exit 1; }
-[ -f "$SYNC" ] || { echo "找不到 $SYNC"; exit 1; }
+[ -f "$SCRIPT" ] || {
+  echo "找不到 $SCRIPT"
+  exit 1
+}
+[ -f "$VERIFY" ] || {
+  echo "找不到 $VERIFY"
+  exit 1
+}
+[ -f "$SYNC" ] || {
+  echo "找不到 $SYNC"
+  exit 1
+}
 
 WORK="$(mktemp -d)"
 OK=0
@@ -55,16 +71,16 @@ trap 'rc=$?; rm -rf "$WORK"; if [ "$rc" -ne 0 ]; then exit $rc; fi; if [ "${OK:-
 # ── 造假 fpk + 假应用根（结构同 check-upgrade-inplace-cmd-sync.sh）─────────
 build_fake_fpk() {
   local out="$1" src="$WORK/fpkroot"
-  mkdir -p "$src/cmd" "$src/wizard" "$src/config"            "$src/payload/bin" "$src/payload/www" "$src/payload/ui"            "$src/payload/config" "$src/payload/configs"
-  printf '#!/bin/bash\n# NEW MAIN\n'  > "$src/cmd/main"
-  printf 'appname=pigeonbox\n'        > "$src/manifest"
-  printf 'version=9.9.9\n'            >> "$src/manifest"
-  printf 'service_port=12345\n'       >> "$src/manifest"
+  mkdir -p "$src/cmd" "$src/wizard" "$src/config" "$src/payload/bin" "$src/payload/www" "$src/payload/ui" "$src/payload/config" "$src/payload/configs"
+  printf '#!/bin/bash\n# NEW MAIN\n' >"$src/cmd/main"
+  printf 'appname=pigeonbox\n' >"$src/manifest"
+  printf 'version=9.9.9\n' >>"$src/manifest"
+  printf 'service_port=12345\n' >>"$src/manifest"
   chmod 755 "$src/cmd"/*
-  printf 'newbin\n'  > "$src/payload/bin/pigeonbox-linux-amd64"
-  printf 'newhtml\n' > "$src/payload/www/index.html"
-  printf 'ui\n'      > "$src/payload/ui/config"
-  printf 'yaml\n'    > "$src/payload/configs/config.yaml"
+  printf 'newbin\n' >"$src/payload/bin/pigeonbox-linux-amd64"
+  printf 'newhtml\n' >"$src/payload/www/index.html"
+  printf 'ui\n' >"$src/payload/ui/config"
+  printf 'yaml\n' >"$src/payload/configs/config.yaml"
   tar czf "$WORK/app.tgz" -C "$src/payload" .
   cp "$WORK/app.tgz" "$src/app.tgz"
   tar czf "$out" -C "$src" .
@@ -72,16 +88,16 @@ build_fake_fpk() {
 
 build_fake_app() {
   local app="$1"
-  mkdir -p "$app/cmd" "$app/config" "$app/wizard"            "$app/target/config" "$app/target/configs"            "$app/target/www" "$app/target/bin" "$app/target/ui"
-  printf '#!/bin/bash\n# OLD MAIN\n' > "$app/cmd/main"
+  mkdir -p "$app/cmd" "$app/config" "$app/wizard" "$app/target/config" "$app/target/configs" "$app/target/www" "$app/target/bin" "$app/target/ui"
+  printf '#!/bin/bash\n# OLD MAIN\n' >"$app/cmd/main"
   chmod 755 "$app/cmd"/*
-  printf 'appname=pigeonbox\n'  > "$app/manifest"
-  printf 'version=1.1.1\n'      >> "$app/manifest"
-  printf 'service_port=12345\n' >> "$app/manifest"
-  printf 'keep\n'   > "$app/target/config/app.conf"
-  printf 'keep\n'   > "$app/target/configs/config.yaml"
-  printf 'oldhtml\n' > "$app/target/www/index.html"
-  printf 'oldbin\n'  > "$app/target/bin/pigeonbox-linux-amd64"
+  printf 'appname=pigeonbox\n' >"$app/manifest"
+  printf 'version=1.1.1\n' >>"$app/manifest"
+  printf 'service_port=12345\n' >>"$app/manifest"
+  printf 'keep\n' >"$app/target/config/app.conf"
+  printf 'keep\n' >"$app/target/configs/config.yaml"
+  printf 'oldhtml\n' >"$app/target/www/index.html"
+  printf 'oldbin\n' >"$app/target/bin/pigeonbox-linux-amd64"
 }
 
 # ── 假 appcenter-cli：把调用记录下来（供断言查）──────────────────────────
@@ -91,7 +107,7 @@ make_fake_appcenter() {
   # 引号 heredoc ⇒ 内容**原样**落盘。
   # list 输出与调用日志路径走**环境变量**（不用 sed -i 填坑：
   # macOS 的 BSD sed -i 会把 -e 当成备份后缀 ⇒ 直接炸）。
-  cat > "$dir/appcenter-cli" <<'EOF'
+  cat >"$dir/appcenter-cli" <<'EOF'
 #!/usr/bin/env bash
 echo "$@" >> "${FAKE_APPCENTER_LOG:-/dev/null}"
 case "$1" in
@@ -142,7 +158,7 @@ fi
 
 echo "── C4 沙箱模式：两条断言都跳过并说明原因，退出码 0"
 make_fake_appcenter "$WORK/bin" "pigeonbox 9.9.9 running"
-SANDBOX_OUT="$(PATH="$WORK/bin:$PATH" PB_APP_ROOT="$WORK/app" PB_UPGRADE_TARGET="$WORK/app/target"   PB_UPGRADE_SANDBOX=1 PB_UPGRADE_UNPACK="$WORK/unpack"   PB_PKG_USER="$(id -un)" PB_PKG_GROUP="$(id -gn)"   bash "$SCRIPT" "$WORK/pigeonbox.fpk" 2>&1)"
+SANDBOX_OUT="$(PATH="$WORK/bin:$PATH" PB_APP_ROOT="$WORK/app" PB_UPGRADE_TARGET="$WORK/app/target" PB_UPGRADE_SANDBOX=1 PB_UPGRADE_UNPACK="$WORK/unpack" PB_PKG_USER="$(id -un)" PB_PKG_GROUP="$(id -gn)" bash "$SCRIPT" "$WORK/pigeonbox.fpk" 2>&1)"
 SANDBOX_RC=$?
 printf '%s\n' "$SANDBOX_OUT" | sed 's/^/    /'
 if [ "$SANDBOX_RC" = "0" ]; then
@@ -163,12 +179,12 @@ fi
 
 echo "── C5 断言 A 有牙齿：capabilities 报 gateway=false ⇒ 必须非 0 退出"
 make_fake_appcenter "$WORK/bin_false" "pigeonbox 9.9.9 running"
-cat > "$WORK/bin_false/curl" <<'EOF'
+cat >"$WORK/bin_false/curl" <<'EOF'
 #!/usr/bin/env bash
 printf '{"code":200,"data":{"gateway":false,"sso":false}}'
 EOF
 chmod +x "$WORK/bin_false/curl"
-OUT_FALSE="$(PATH="$WORK/bin_false:$PATH" FAKE_APPCENTER_LIST="pigeonbox 9.9.9 running" PB_TARGET_VERSION=9.9.9   PB_APP_ROOT="$WORK/app" PB_PKGVAR="$WORK/pkgvar"   bash "$VERIFY" 2>&1)"
+OUT_FALSE="$(PATH="$WORK/bin_false:$PATH" FAKE_APPCENTER_LIST="pigeonbox 9.9.9 running" PB_TARGET_VERSION=9.9.9 PB_APP_ROOT="$WORK/app" PB_PKGVAR="$WORK/pkgvar" bash "$VERIFY" 2>&1)"
 RC_FALSE=$?
 printf '%s\n' "$OUT_FALSE" | sed 's/^/    /'
 if [ "$RC_FALSE" != "0" ]; then
@@ -184,12 +200,12 @@ fi
 
 echo "── C6 断言 B 有牙齿：注册表版本 != 目标版本 ⇒ 必须非 0 退出"
 make_fake_appcenter "$WORK/bin_old" "pigeonbox 4.8.6 running"
-cat > "$WORK/bin_old/curl" <<'EOF'
+cat >"$WORK/bin_old/curl" <<'EOF'
 #!/usr/bin/env bash
 printf '{"code":200,"data":{"gateway":true,"sso":true}}'
 EOF
 chmod +x "$WORK/bin_old/curl"
-OUT_OLD="$(PATH="$WORK/bin_old:$PATH" FAKE_APPCENTER_LIST="pigeonbox 4.8.6 running" PB_TARGET_VERSION=9.9.9   PB_APP_ROOT="$WORK/app" PB_PKGVAR="$WORK/pkgvar"   bash "$VERIFY" 2>&1)"
+OUT_OLD="$(PATH="$WORK/bin_old:$PATH" FAKE_APPCENTER_LIST="pigeonbox 4.8.6 running" PB_TARGET_VERSION=9.9.9 PB_APP_ROOT="$WORK/app" PB_PKGVAR="$WORK/pkgvar" bash "$VERIFY" 2>&1)"
 RC_OLD=$?
 printf '%s\n' "$OUT_OLD" | sed 's/^/    /'
 if [ "$RC_OLD" != "0" ]; then
@@ -205,12 +221,12 @@ fi
 
 echo "── C6c 正对照：注册表版本 == 目标版本 ⇒ 必须退 0"
 make_fake_appcenter "$WORK/bin_new" "pigeonbox 9.9.9 running"
-cat > "$WORK/bin_new/curl" <<'EOF'
+cat >"$WORK/bin_new/curl" <<'EOF'
 #!/usr/bin/env bash
 printf '{"code":200,"data":{"gateway":true,"sso":true}}'
 EOF
 chmod +x "$WORK/bin_new/curl"
-OUT_NEW="$(PATH="$WORK/bin_new:$PATH" FAKE_APPCENTER_LIST="pigeonbox 9.9.9 running" PB_TARGET_VERSION=9.9.9   PB_APP_ROOT="$WORK/app" PB_PKGVAR="$WORK/pkgvar"   bash "$VERIFY" 2>&1)"
+OUT_NEW="$(PATH="$WORK/bin_new:$PATH" FAKE_APPCENTER_LIST="pigeonbox 9.9.9 running" PB_TARGET_VERSION=9.9.9 PB_APP_ROOT="$WORK/app" PB_PKGVAR="$WORK/pkgvar" bash "$VERIFY" 2>&1)"
 RC_NEW=$?
 printf '%s\n' "$OUT_NEW" | sed 's/^/    /'
 if [ "$RC_NEW" = "0" ]; then
@@ -222,7 +238,7 @@ fi
 echo "── C7 负对照：把 appcenter-cli 启停变异掉 ⇒ C1 必须变红"
 MUT="$WORK/upgrade-inplace.mutated.sh"
 # shellcheck disable=SC2016  # 单引号是故意的：sed 模式里 $APPCENTER_CLI 必须保持字面量
-sed 's|"$APPCENTER_CLI" start "$APP_NAME"|true|' "$SCRIPT" > "$MUT"
+sed 's|"$APPCENTER_CLI" start "$APP_NAME"|true|' "$SCRIPT" >"$MUT"
 if diff -q "$SCRIPT" "$MUT" >/dev/null 2>&1; then
   bad "C7 变异未生效" "没能在脚本里定位 appcenter-cli 启停段（脚本结构变了？）"
 else
