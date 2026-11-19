@@ -93,6 +93,31 @@ jobs:
           chmod +x fnpack
       - name: fnpack build
         run: cd fnos && ../fnpack build
+      # ⚠️ 设备侧 POSIX 子集 + 预接线脚本**必须在 fpk 内**（2026-11-19 补）：
+      #   cmd/main 顶部 fail-closed 装载 cmd/shellkit-posix.sh（缺 ⇒ 退 5 ⇒ 服务起不来）
+      #   cmd/prewire_beam_box 是出厂预接线的执行体（缺 ⇒ 每次启动被 skip ⇒ 静默空跑）
+      #   ⇒ 与 2026-10-26 那次 p2pc P1 同一类失效模式：钩子依赖的文件必须
+      #     在**产物**层面断言（"打包脚本会装"不算数）。
+      - name: fpk 内设备侧脚本清单断言（POSIX 子集 + 预接线）
+        if: always()
+        run: |
+          if [ ! -f fnos/pigeonbox.fpk ]; then
+            echo "  (跳过：尚无 fpk——fnpack build 未产出)"; exit 0
+          fi
+          WORK="$(mktemp -d)"
+          trap 'rm -rf "$WORK"' EXIT
+          tar xzf fnos/pigeonbox.fpk -C "$WORK"
+          if [ ! -f "$WORK/app.tgz" ]; then
+            echo "::error::fpk 内缺 app.tgz（fpk 结构变了？）"; exit 1
+          fi
+          tar xzf "$WORK/app.tgz" -C "$WORK"
+          for f in cmd/shellkit-posix.sh cmd/prewire_beam_box cmd/main; do
+            if [ -f "$WORK/$f" ] || [ -f "$WORK/app/$f" ]; then
+              echo "✓ fpk 内含 $f"
+            else
+              echo "::error::fpk 内缺 $f（设备侧 fail-closed / 静默空跑）"; exit 1
+            fi
+          done
       # 2026-10-26 审计 P2：`make fpack` 不重建任何产物 ⇒ 会把上一次的本地产物
       # （陈旧二进制 + 陈旧前端）打进一个「能装」的 fpk ⇒ 包内版本号对、功能旧。
       # ⇒ 打包后校验：fpk 内嵌二进制的版本戳 == VERSION、前端 version.txt ==

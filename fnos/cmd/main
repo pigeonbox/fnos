@@ -191,10 +191,25 @@ prewire_beam_box() {
         log_msg "beam prewire: script missing (${script}), skip"
         return 0
     fi
+    # ⚠️ 2026-11-19：预接线脚本已改 **POSIX sh**（busybox ash 可解析），并依赖
+    #   shellkit 的 POSIX 子集（lib/posix/shellkit-posix.sh，设备侧唯一可用形态）。
+    #   ⇒ 显式导出子集路径：装机后二者同在 /var/apps/pigeonbox/cmd/（脚本的
+    #     「同目录」探测本可命中），但导出可保证装机布局变了也仍能找到。
+    export PB_SHELLKIT_POSIX="${APP_ROOT}/cmd/shellkit-posix.sh"
     # ⚠️ **后台执行**：脚本自己会等 Box / p2pcweb 就绪（最多 30s）
     #   ⇒ 前台调用会把包启动**阻塞** 30s ⇒ 极端情况下触发 appcenter 超时。
     #   ⇒ 后台跑；就绪后自动完成预置，幂等 ⇒ 下次启动会自愈重试。
-    nohup bash "$script" >> "${LOG_FILE}" 2>&1 &
+    #
+    # ⚠️ **用脚本自己的 shebang 执行**（#!/bin/sh）⇒ 设备侧解释器与仓内自测
+    #   （`sh "$1"`）同一口径 ⇒ 不会「CI 验的是 POSIX、真机跑的却是 bash」；
+    #   也不再让一个「刻意不依赖 bash」的脚本在 fnOS 上仍吃 bash 依赖。
+    #   兜底：可执行位若丢（fnpack/装机可能改权限）⇒ 退到 `sh` 解释器跑，
+    #   绝不因「Permission denied」静默丢掉预接线（本函数契约=失败不阻断）。
+    if [ -x "$script" ]; then
+        nohup "$script" >> "${LOG_FILE}" 2>&1 &
+    else
+        nohup sh "$script" >> "${LOG_FILE}" 2>&1 &
+    fi
     log_msg "beam prewire: started (background; waits for Box + p2pcweb readiness)"
     return 0
 }
