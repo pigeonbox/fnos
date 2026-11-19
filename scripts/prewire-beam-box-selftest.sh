@@ -19,6 +19,11 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREWIRE="$SCRIPT_DIR/../fnos/cmd/prewire_beam_box"
+# ⚠️ **POSIX 子集的落地路径必须显式指给脚本**（2026-11-19）：负对照会把脚本
+#   **复制到临时目录**再跑 ⇒ 脚本按「同目录」探测就找不到库 ⇒ 直接早退 ⇒
+#   负对照会误判成「变异无效」（判据失牙齿）。
+#   ⇒ 自测显式给库路径（PB_SHELLKIT_POSIX），与真机上的落点解析各走各的。
+SK_POSIX="$SCRIPT_DIR/../fnos/cmd/shellkit-posix.sh"
 
 fails=0
 note_fail() {
@@ -157,7 +162,8 @@ run_prewire() { # <脚本路径> → 退出码
     PB_DATA_PATH="$DATA" \
     PB_ADMIN_PASSWORD=admin123 \
     PB_PREWIRE_WAIT_MAX="${PB_PREWIRE_WAIT_MAX:-30}" \
-    bash "$1" >/dev/null 2>&1
+    PB_SHELLKIT_POSIX="$SK_POSIX" \
+    sh "$1" >/dev/null 2>&1
 }
 
 state_get() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$STATE" "$1" 2>/dev/null; }
