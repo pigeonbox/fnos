@@ -50,7 +50,7 @@ jobs:
           fi
           MV=$(awk -F= '$1=="version"{print $2}' fnos/manifest)
           [ "$MV" = "${VER#v}" ] || { echo "::error::fnos/manifest version=$MV ≠ tag $VER——发版走 hub 列车 bump,勿手改 manifest"; exit 1; }
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: "1.26.11"
           cache-dependency-path: go.sum
